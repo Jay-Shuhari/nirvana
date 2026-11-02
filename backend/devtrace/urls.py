@@ -6,7 +6,7 @@
 # ======================================================================
 from django.conf import settings
 from django.contrib import admin
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.urls import include, path, re_path
 
 # ANCHOR: React catch-all
@@ -20,6 +20,7 @@ def spa(request, *args, **kwargs):
 
 # ANCHOR: Routes
 urlpatterns = [
+    path("healthz", lambda request: JsonResponse({"ok": True})),
     path("admin/", admin.site.urls),
     path("api/", include("core.urls")),
     # ! Must stay LAST: it matches everything except api/, admin/ and static/.
