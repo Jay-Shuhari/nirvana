@@ -1,0 +1,47 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "2. A request from click to database",
+  "description": "Follow one API call through every layer.",
+  "steps": [
+    {
+      "file": "frontend/src/api.js",
+      "line": 15,
+      "description": "Every call goes through here: adds the JWT, parses errors."
+    },
+    {
+      "file": "frontend/src/App.jsx",
+      "line": 33,
+      "description": "On load the app asks /api/me who is logged in."
+    },
+    {
+      "file": "backend/devtrace/urls.py",
+      "line": 22,
+      "description": "Django routes: admin, API, then the React catch-all (must be last)."
+    },
+    {
+      "file": "backend/core/urls.py",
+      "line": 11,
+      "description": "API URLs mapped to view functions."
+    },
+    {
+      "file": "backend/core/views.py",
+      "line": 228,
+      "description": "A view checks role, limits, duplicates and the repo, then queries the models."
+    },
+    {
+      "file": "backend/core/models.py",
+      "line": 65,
+      "description": "One class is one Supabase table; note the one-project-per-task constraint."
+    },
+    {
+      "file": "backend/devtrace/settings.py",
+      "line": 46,
+      "description": "DATABASE_URL decides where the data lives: Supabase or local SQLite."
+    },
+    {
+      "file": "supabase/schema.sql",
+      "line": 9,
+      "description": "RLS keeps the public anon key from reading any of it."
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "1. How a submission becomes a score",
+  "description": "From the Submit button to the number on screen.",
+  "steps": [
+    {
+      "file": "frontend/src/pages/Project.jsx",
+      "line": 33,
+      "description": "The student clicks **Submit for evaluation**. This calls the API and waits."
+    },
+    {
+      "file": "backend/core/views.py",
+      "line": 272,
+      "description": "Daily limit check, then a Submission row is created first so failures are recorded."
+    },
+    {
+      "file": "backend/core/analyzer.py",
+      "line": 34,
+      "description": "The analyzer reads GitHub and returns metrics, evidence and timeline stats."
+    },
+    {
+      "file": "backend/core/analyzer.py",
+      "line": 43,
+      "description": "Commits are bucketed into weeks - this becomes the timeline chart."
+    },
+    {
+      "file": "backend/core/analyzer.py",
+      "line": 68,
+      "description": "Raw facts become 0..1 metrics. Each rubric criterion points at one."
+    },
+    {
+      "file": "backend/core/ai.py",
+      "line": 76,
+      "description": "If the task has requirements, an AI (or rule check) tests the repo against each one."
+    },
+    {
+      "file": "backend/core/views.py",
+      "line": 290,
+      "description": "Metric x weight = points, saved as one CriterionScore per criterion."
+    },
+    {
+      "file": "backend/core/views.py",
+      "line": 42,
+      "description": "The total is the sum of criterion points; overrides win over automatic scores."
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/Scripts/python.exe",
+  "python.analysis.extraPaths": ["${workspaceFolder}/backend"],
+  "python.analysis.typeCheckingMode": "off",
+
+  "todo-tree.general.tags": ["TODO", "FIXME", "BUG", "HACK", "NOTE", "REVIEW", "STEP", "[ ]"],
+  "todo-tree.filtering.excludeGlobs": ["**/node_modules/**", "**/.venv/**", "**/dist/**", "**/staticfiles/**"],
+  "todo-tree.tree.groupedByTag": true,
+  "todo-tree.regex.regex": "((//|#|<!--|;|/\\*|^)\\s*($TAGS)|^\\s*- \\[ \\])",
+
+  "todohighlight.keywords": [
+    { "text": "TODO:", "color": "#000", "backgroundColor": "#facc15" },
+    { "text": "FIXME:", "color": "#fff", "backgroundColor": "#dc2626" },
+    { "text": "BUG:", "color": "#fff", "backgroundColor": "#dc2626" },
+    { "text": "NOTE:", "color": "#000", "backgroundColor": "#d4d4d4" }
+  ],
+
+  "better-comments.tags": [
+    { "tag": "!", "color": "#FF2D00", "strikethrough": false, "underline": false, "backgroundColor": "transparent", "bold": false, "italic": false },
+    { "tag": "?", "color": "#3498DB", "strikethrough": false, "underline": false, "backgroundColor": "transparent", "bold": false, "italic": false },
+    { "tag": "*", "color": "#98C379", "strikethrough": false, "underline": false, "backgroundColor": "transparent", "bold": false, "italic": false },
+    { "tag": "//", "color": "#474747", "strikethrough": true, "underline": false, "backgroundColor": "transparent", "bold": false, "italic": false },
+    { "tag": "todo", "color": "#FF8C00", "strikethrough": false, "underline": false, "backgroundColor": "transparent", "bold": false, "italic": false }
+  ],
+
+  "commentAnchors.workspace.excludeFiles": "**/{node_modules,.venv,dist,staticfiles}/**",
+  "markdown.preview.breaks": true,
+  "files.exclude": { "**/__pycache__": true }
+}

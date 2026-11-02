@@ -1,0 +1,37 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "3. Supervisor override and cohort",
+  "description": "How a supervisor adjusts a score and sees the whole class.",
+  "steps": [
+    {
+      "file": "frontend/src/pages/Project.jsx",
+      "line": 46,
+      "description": "The supervisor enters a score and a mandatory reason."
+    },
+    {
+      "file": "backend/core/views.py",
+      "line": 298,
+      "description": "Only the course's supervisor may override; the reason is required; the student is notified."
+    },
+    {
+      "file": "backend/core/models.py",
+      "line": 96,
+      "description": "auto and override are stored side by side - the audit trail."
+    },
+    {
+      "file": "backend/core/views.py",
+      "line": 346,
+      "description": "The teacher's general overview across every course."
+    },
+    {
+      "file": "backend/core/views.py",
+      "line": 336,
+      "description": "Per-course cohort stats, distribution and rows."
+    },
+    {
+      "file": "frontend/src/pages/Cohort.jsx",
+      "line": 31,
+      "description": "Search and filters run in the browser."
+    }
+  ]
+}

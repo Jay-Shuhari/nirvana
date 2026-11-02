@@ -1,0 +1,14 @@
+{
+  "recommendations": [
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "aaron-bond.better-comments",
+    "gruntfuggly.todo-tree",
+    "wayou.vscode-todo-highlight",
+    "exodiusstudios.comment-anchors",
+    "vsls-contrib.codetour",
+    "yzhang.markdown-all-in-one",
+    "shd101wyy.markdown-preview-enhanced",
+    "foam.foam-vscode"
+  ]
+}
