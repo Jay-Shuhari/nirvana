@@ -12,12 +12,25 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
-# ! Set a long random SECRET_KEY in .env for any real deployment.
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-only")
-# ! Must be 0 in production (shows stack traces to visitors when 1).
-DEBUG = os.getenv("DEBUG", "1") == "1"
-# TODO: restrict to your real domain before deploying.
-ALLOWED_HOSTS = ["*"]
+
+
+def env_list(name, default=""):
+    """Comma-separated env var -> clean list (strips spaces and trailing slashes)."""
+    raw = os.getenv(name, default)
+    return [item.strip().rstrip("/") for item in raw.split(",") if item.strip()]
+
+
+# ! Off by default so a forgotten variable fails safe. Set DEBUG=1 in your local backend/.env.
+DEBUG = os.getenv("DEBUG", "0") == "1"
+
+# ! In production (DEBUG=0) SECRET_KEY must be set, or the app refuses to start.
+SECRET_KEY = os.getenv("SECRET_KEY") or ("dev-only" if DEBUG else None)
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY must be set when DEBUG=0")
+
+# * Comma-separated hostnames, no https://. Example on Render: nirvana-0p99.onrender.com
+ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "localhost,127.0.0.1")
+
 # ANCHOR: Apps and middleware
 INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
@@ -39,6 +52,7 @@ ROOT_URLCONF = "devtrace.urls"
 TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "APP_DIRS": True,
     "OPTIONS": {"context_processors": ["django.template.context_processors.request",
     "django.contrib.auth.context_processors.auth", "django.contrib.messages.context_processors.messages"]}}]
+
 # ANCHOR: Database (Supabase)
 # * DATABASE_URL = Supabase Session-pooler URI. Empty means local SQLite for quick testing.
 # ! ssl_require is on whenever DATABASE_URL is set - Supabase requires SSL.
@@ -50,8 +64,17 @@ DATABASES = {"default": dj_database_url.config(
 AUTH_USER_MODEL = "core.User"
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-# * Only needed for `npm run dev` on port 5173. Single-URL mode does not use CORS.
-CORS_ALLOWED_ORIGINS = [os.getenv("CORS_ORIGIN", "http://localhost:5173")]
+
+# ANCHOR: CORS and CSRF
+# * CORS_ORIGIN = your frontend URL, e.g. https://nirvana-xxxx.vercel.app (https:// yes, trailing slash no).
+#   Several origins can be comma-separated. Local dev on port 5173 is always allowed.
+CORS_ALLOWED_ORIGINS = env_list("CORS_ORIGIN") + ["http://localhost:5173"]
+# * Only needed if you log in to /admin on the deployed site.
+#   Example on Render: CSRF_TRUSTED_ORIGINS=https://nirvana-0p99.onrender.com
+CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
+# * Render terminates HTTPS at its proxy; this tells Django the original request was secure.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 # ANCHOR: API auth
 # * Every endpoint requires a JWT unless a view opts out (register, login).
 REST_FRAMEWORK = {
