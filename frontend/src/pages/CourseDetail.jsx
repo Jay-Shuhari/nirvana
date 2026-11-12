@@ -13,6 +13,7 @@ export default function CourseDetail() {
   const { toast, confirm } = useUI();
   const [d, setD] = useState(null);
   const [tab, setTab] = useState("Tasks");
+  const [deletingTask, setDeletingTask] = useState(null);
   const load = useCallback(() => api(`/courses/${id}`).then(setD).catch((e) => { toast.error(e.message); nav("/courses"); }), [id]);
   useEffect(() => { load(); }, [load]);
   if (!d) return <PageSkeleton variant="course" />;
@@ -23,8 +24,17 @@ export default function CourseDetail() {
     try { await api(`/courses/${id}`, { method: "DELETE" }); toast.success("Course deleted."); nav("/courses"); } catch (e) { toast.error(e.message); }
   }
   async function removeTask(t) {
-    if (!(await confirm({ title: `Delete "${t.title}"?`, body: "Students keep their projects and evaluations.", confirm: "Delete task", danger: true }))) return;
-    try { await api(`/tasks/${t.id}`, { method: "DELETE" }); toast.success("Task deleted."); load(); } catch (e) { toast.error(e.message); }
+    setDeletingTask(t.id);
+    try {
+      await api(`/tasks/${t.id}`, { method: "DELETE" });
+      await new Promise((resolve) => setTimeout(resolve, 240));
+      setD((curr) => (curr ? { ...curr, tasks: curr.tasks.filter((item) => item.id !== t.id) } : curr));
+      toast.success("Task deleted.");
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setDeletingTask(null);
+    }
   }
   const copy = () => navigator.clipboard?.writeText(c.join_code).then(() => toast.success("Join code copied."), () => toast.error("Could not copy."));
 
@@ -40,7 +50,7 @@ export default function CourseDetail() {
     {tab === "Tasks" && <div className="grid2" style={{ alignItems: "start" }}>
       <div>{d.tasks.length === 0 ? <div className="empty">No tasks yet. Create the first one.</div> :
         <table><thead><tr><th>Task</th><th>Due</th><th className="num">Evaluated</th><th /></tr></thead><tbody>
-          {d.tasks.map((t) => <tr key={t.id}><td><b>{t.title}</b><div className="help" style={{ margin: 0 }}>{t.requirements.length} requirements</div></td><td className="grey">{t.due || "-"}</td><td className="num">{t.submitted}/{t.projects}</td>
+          {d.tasks.map((t) => <tr key={t.id} className={deletingTask === t.id ? "task-deleting" : ""}><td><Link to={`/tasks/${t.id}`}><b>{t.title}</b></Link><div className="help" style={{ margin: 0 }}>{t.requirements.length} requirements</div></td><td className="grey">{t.due || "-"}</td><td className="num">{t.submitted}/{t.projects}</td>
             <td className="num"><button className="btn icon sm" onClick={() => removeTask(t)} aria-label={`Delete ${t.title}`}><Icon name="trash" /></button></td></tr>)}</tbody></table>}</div>
       <TaskForm courseId={c.id} onCreated={load} /></div>}
 

@@ -46,6 +46,7 @@ export default function Project({ user }) {
   const done = p.submissions.filter((x) => x.status === "done");
   const s = done[0], prev = done[1];
   const hasReq = p.task?.requirements?.length > 0;
+  const deadlinePassed = Boolean(p.task?.due && p.task.due < new Date().toISOString().slice(0, 10));
   const tabs = ["Overview", "Timeline", ...(hasReq ? ["Requirements"] : []), "Evidence", "History"];
 
   async function submit() { // ANCHOR: Submit for evaluation. ! waits for GitHub, so the button shows "Analyzing..."
@@ -88,7 +89,10 @@ export default function Project({ user }) {
       {p.can_edit && <div className="row wrap">
         <button className="btn" onClick={() => setEdit({ name: p.name, repo: p.repo })}><Icon name="edit" /><span>Edit</span></button>
         <button className="btn danger icon" onClick={remove} aria-label="Delete project"><Icon name="trash" /></button>
-        <button className="btn primary" onClick={submit} disabled={busy}><span>{busy ? "Analyzing..." : "Submit for evaluation"}</span></button></div>}</div>
+        <button className="btn primary" onClick={submit} disabled={busy || p.submission_locked || deadlinePassed}>
+          <span>{busy ? "Analyzing..." : p.submission_locked ? "Submitted" : deadlinePassed ? "Deadline passed" : "Submit for evaluation"}</span>
+        </button></div>}</div>
+    {deadlinePassed && !p.submission_locked && <p className="help">This task deadline has passed; new submissions are closed.</p>}
 
     {edit && <form className="panel" style={{ marginTop: 16 }} onSubmit={saveEdit}>
       <label style={{ marginTop: 0 }}>Project name</label><input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
@@ -109,7 +113,7 @@ export default function Project({ user }) {
         {s.final_score !== s.auto_score && <span className="badge" style={{ marginLeft: 16, verticalAlign: "middle" }}>Adjusted by supervisor</span>}
         {prev && <div className="grey" style={{ fontSize: 14, fontWeight: 400 }}>{s.final_score - prev.final_score >= 0 ? "+" : ""}{s.final_score - prev.final_score} from previous submission</div>}</div>
       {s.overall_override !== null && <p className="help">Overall grade overridden by supervisor: {s.overall_reason}</p>}
-      {s.ai?.rubric?.mode === "ai" && <p className="help">Gemini's rubric recommendation: {s.auto_score}/100</p>}
+      {s.ai?.rubric?.mode === "ai" && <p className="help">Ttonpa's rubric recommendation: {s.auto_score}/100</p>}
       {sup && <form className="overall-override" onSubmit={saveOverall}>
         <b>Overall grade override</b>
         <div className="row wrap">
@@ -122,7 +126,7 @@ export default function Project({ user }) {
         </div>
       </form>}
       <p className="help">{s.ai?.rubric?.mode === "ai"
-        ? "Gemini recommended each rubric score using repository evidence. The supervisor may override criterion scores or the overall grade."
+        ? "Ttonpa recommended each rubric score using repository evidence. The supervisor may override criterion scores or the overall grade."
         : "Rubric scores use repository metrics because an AI rubric review was unavailable."}</p>
       {s.ai?.mode !== "ai" && <p className="help">{s.ai?.summary}</p>}
       <table style={{ marginTop: 20 }}><thead><tr><th>Criterion</th><th style={{ width: 240 }}>Final score</th><th>AI recommendation and rationale</th>{sup && <><th>Your score</th><th>Reason</th><th /></>}</tr></thead><tbody>

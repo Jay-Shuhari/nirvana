@@ -5,6 +5,7 @@
 # SEE:  docs/Architecture.md, docs/Data-Model.md
 # ======================================================================
 import secrets
+import uuid
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.utils import timezone
@@ -38,6 +39,20 @@ class User(AbstractUser):
     matric = models.CharField(max_length=30, blank=True)
     department = models.CharField(max_length=80, blank=True)
 
+class GitHubInstallation(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="github_installations")
+    installation_id = models.PositiveBigIntegerField(unique=True)
+    active = models.BooleanField(default=True)
+    suspended = models.BooleanField(default=False)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+class GitHubInstallState(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="github_install_states")
+    nonce = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    created = models.DateTimeField(auto_now_add=True)
+    consumed = models.BooleanField(default=False)
+
 # ANCHOR: Course model
 # * A supervisor owns a course; students join with `join_code`; `rubric` is stored as JSON.
 class Course(models.Model):
@@ -69,7 +84,11 @@ class Project(models.Model):
     repo = models.CharField(max_length=200, help_text="owner/name")
     # ! SET_NULL: deleting a task keeps students' projects (they become "general" course projects).
     task = models.ForeignKey(Task, null=True, blank=True, on_delete=models.SET_NULL, related_name="projects")
+    github_installation = models.ForeignKey(
+        GitHubInstallation, null=True, blank=True, on_delete=models.SET_NULL, related_name="projects"
+    )
     created = models.DateTimeField(default=timezone.now)  # ? default, not auto_now_add: existing rows need a value
+    submission_locked = models.BooleanField(default=False)
     class Meta:
         # ! One project per student per task - stops the "same project uploaded ten times" problem.
         constraints = [models.UniqueConstraint(fields=["student", "task"], condition=models.Q(task__isnull=False), name="one_project_per_task")]

@@ -1,11 +1,14 @@
 // ANCHOR: Auth.jsx - Login / Register
 // * Heading "Nirvana" (logo font) with "Welcome back" beneath. Enter submits (real <form>). Feedback via toasts.
 import { useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { api, token } from "../api.js";
 import { useUI } from "../components/ui.jsx";
 
 export default function Auth({ onLogin }) {
   const { toast } = useUI();
+  const nav = useNavigate();
+  const location = useLocation();
   const [mode, setMode] = useState("login");
   const [f, setF] = useState({ role: "student" });
   const [busy, setBusy] = useState(false);
@@ -27,8 +30,9 @@ export default function Auth({ onLogin }) {
       let t;
       try { t = await api("/auth/login", { method: "POST", body: { username: f.email.trim().toLowerCase(), password: f.password } }); }
       catch { throw new Error("Incorrect email or password. Check your details and try again."); } // ! deliberately vague
-      token.set(t.access);
+      token.set(t.access, t.refresh);
       onLogin(await api("/me"));
+      nav(location.pathname === "/" ? "/" : `${location.pathname}${location.search}${location.hash}`, { replace: true });
     } catch (err) { toast.error(err.message); }
     setBusy(false);
   }

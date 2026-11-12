@@ -14,24 +14,24 @@ SRC_EXT = (".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".cs", ".php", ".go", "
 SKIP = re.compile(r"(^|/)(node_modules|dist|build|\.venv|venv|migrations|static|vendor)/|test|spec", re.I)
 MANIFESTS = {"package.json", "requirements.txt", "pyproject.toml", "pom.xml", "composer.json", "pubspec.yaml"}
 
-def _read(repo, path, limit):
+def _read(repo, path, limit, github_token=None):
     """Fetch one file's text from GitHub (truncated). Returns '' on any failure."""
     try:
-        j = gh(f"/repos/{repo}/contents/{path}")
+        j = gh(f"/repos/{repo}/contents/{path}", token=github_token)
         if isinstance(j, dict) and j.get("encoding") == "base64":
             return base64.b64decode(j["content"]).decode("utf-8", "ignore")[:limit]
     except Exception:
         pass
     return ""
 
-def gather(repo, paths):
+def gather(repo, paths, github_token=None):
     """STEP 1: pick the files worth reading: README, manifests, and a few shallow source files."""
     readme = next((p for p in paths if p.lower().split("/")[-1].startswith("readme")), None)
     manifests = [p for p in paths if p.split("/")[-1] in MANIFESTS][:2]
     sources = sorted((p for p in paths if p.lower().endswith(SRC_EXT) and not SKIP.search(p)), key=lambda p: (p.count("/"), len(p)))[:6]
     files = {}
     for p in ([readme] if readme else []) + manifests + sources:
-        text = _read(repo, p, 4000 if p == readme else 2000)
+        text = _read(repo, p, 4000 if p == readme else 2000, github_token)
         if text: files[p] = text
     return files
 
@@ -115,9 +115,9 @@ def _llm_review(task, rubric, files, paths, metrics, evidence):
         })
     return str(data.get("summary", ""))[:600], checked_requirements, recommendations
 
-def review_submission(repo, task, rubric, paths, metrics, evidence):
+def review_submission(repo, task, rubric, paths, metrics, evidence, github_token=None):
     """Run AI requirements/rubric review, with existing checks as a safe fallback."""
-    files = gather(repo, paths)
+    files = gather(repo, paths, github_token)
     mode, summary, note = "rules", "", ""
     recommendations = []
     if settings.LLM_API_KEY and settings.LLM_BASE_URL and settings.LLM_MODEL:
@@ -147,7 +147,7 @@ def review_submission(repo, task, rubric, paths, metrics, evidence):
         items = rule_check(task.requirements if task else [], files, paths)
         summary = note or ("Rule-based keyword check. Add an LLM key in backend/.env for AI review."
                            if task and task.requirements else "AI review is not configured.")
-    rubric_summary = ("Gemini rubric recommendations. A supervisor can override criterion scores."
+    rubric_summary = ("Ttonpa rubric recommendations. A supervisor can override criterion scores."
                       if mode == "ai" else "Rubric scores use repository metrics; AI recommendations were unavailable.")
     return {
         "mode": mode,

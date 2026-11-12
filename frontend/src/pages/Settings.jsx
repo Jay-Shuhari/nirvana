@@ -1,6 +1,6 @@
 // ANCHOR: Settings.jsx - profile, password, appearance.
 // TODO: photo upload (initials are shown for now).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { Avatar, useUI } from "../components/ui.jsx";
 
@@ -9,6 +9,13 @@ export default function Settings({ user, refresh }) {
   const [p, setP] = useState({ name: user.name, department: user.department || "", matric: user.matric || "" });
   const [pw, setPw] = useState({ old: "", new: "", confirm: "" });
   const [theme, setTheme] = useState(localStorage.getItem("dt_theme") || "");
+  const [layout, setLayout] = useState(localStorage.getItem("dt_layout") || "sidebar");
+  const [github, setGithub] = useState({ loading: true, installations: 0 });
+  useEffect(() => {
+    api("/github/repositories")
+      .then((repositories) => setGithub({ loading: false, installations: new Set(repositories.map((repo) => repo.installation_id)).size }))
+      .catch((error) => { setGithub({ loading: false, installations: 0 }); toast.error(error.message); });
+  }, []);
   async function saveProfile(e) { e.preventDefault(); try { await api("/me", { method: "PATCH", body: p }); await refresh(); toast.success("Profile saved."); } catch (err) { toast.error(err.message); } }
   async function savePw(e) {
     e.preventDefault();
@@ -16,6 +23,18 @@ export default function Settings({ user, refresh }) {
     try { await api("/me/password", { method: "POST", body: { old: pw.old, new: pw.new } }); setPw({ old: "", new: "", confirm: "" }); toast.success("Password changed."); } catch (err) { toast.error(err.message); }
   }
   function pick(t) { setTheme(t); localStorage.setItem("dt_theme", t); document.documentElement.dataset.theme = t; }
+  function pickLayout(value) {
+    setLayout(value);
+    localStorage.setItem("dt_layout", value);
+    document.documentElement.dataset.layout = value;
+    window.dispatchEvent(new CustomEvent("dt_layout_change", { detail: value }));
+  }
+  async function connectGitHub() {
+    try {
+      const { url } = await api("/github/install", { method: "POST", body: {} });
+      window.location.assign(url);
+    } catch (err) { toast.error(err.message); }
+  }
   return (<div className="narrow">
     <h1>Settings</h1><div className="grey">Your profile and how Nirvana looks.</div>
     <h2>Profile</h2>
@@ -33,5 +52,18 @@ export default function Settings({ user, refresh }) {
       <button className="btn primary" style={{ marginTop: 16 }}><span>Change password</span></button></form>
     <h2>Appearance</h2>
     <div className="seg" style={{ maxWidth: 320 }}>{[["", "System"], ["light", "Light"], ["dark", "Dark"]].map(([v, l]) => <button key={v} className={theme === v ? "on" : ""} onClick={() => pick(v)}>{l}</button>)}</div>
+    <h3 style={{ marginTop: 16 }}>App layout</h3>
+    <div className="seg" style={{ maxWidth: 360 }}>
+      {[["sidebar", "Sidebar"], ["mobile", "Mobile tabs"]].map(([value, label]) =>
+        <button type="button" key={value} className={layout === value ? "on" : ""} onClick={() => pickLayout(value)}>{label}</button>)}
+    </div>
+    <h2>GitHub</h2>
+    <div className="panel">
+      <div className="row between wrap">
+        <div><b>{github.loading ? "Checking connection..." : github.installations ? "GitHub connected" : "Connect GitHub"}</b>
+          <div className="grey">{github.installations ? `${github.installations} installation${github.installations === 1 ? "" : "s"} available for repository selection.` : "Authorize Nirvana to access only repositories you choose."}</div></div>
+        <button className="btn primary" onClick={connectGitHub}><span>{github.installations ? "Add installation" : "Connect GitHub"}</span></button>
+      </div>
+    </div>
   </div>);
 }

@@ -5,6 +5,7 @@
 # SEE:  docs/Supabase-Security.md
 # ======================================================================
 import os
+import sys
 from datetime import timedelta
 from pathlib import Path
 import dj_database_url
@@ -60,6 +61,9 @@ TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "APP
 DATABASES = {"default": dj_database_url.config(
     default=os.getenv("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
     conn_max_age=60, ssl_require=bool(os.getenv("DATABASE_URL")))}
+if "test" in sys.argv:
+    DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}}
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 # ! Must be set BEFORE the first migration, otherwise Django keeps the default user table.
 AUTH_USER_MODEL = "core.User"
 STATIC_URL = "static/"
@@ -81,9 +85,47 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework_simplejwt.authentication.JWTAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
 }
-SIMPLE_JWT = {"ACCESS_TOKEN_LIFETIME": timedelta(hours=8)}
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
+}
 # * Used by analyzer.py to lift GitHub's rate limit.
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+GITHUB_APP_ID = os.getenv("GITHUB_APP_ID", "")
+GITHUB_APP_SLUG = os.getenv("GITHUB_APP_SLUG", "")
+GITHUB_APP_PRIVATE_KEY = os.getenv("GITHUB_APP_PRIVATE_KEY", "").replace("\\n", "\n")
+GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+
+# ANCHOR: Supabase configuration
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_EMAIL_FUNCTION_NAME = os.getenv("SUPABASE_EMAIL_FUNCTION_NAME", "send-email")
+
+# ANCHOR: Email configuration
+# EMAIL_PROVIDER can be "supabase" (delivers via Supabase Edge Function) or "smtp".
+EMAIL_PROVIDER = os.getenv(
+    "EMAIL_PROVIDER",
+    "supabase" if (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY) else "smtp",
+).lower()
+EMAIL_NOTIFICATIONS_ENABLED = os.getenv("EMAIL_NOTIFICATIONS_ENABLED", "0") == "1"
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Nirvana <notifications@nirvana.app>")
+
+if EMAIL_PROVIDER == "supabase":
+    EMAIL_BACKEND = "core.email.SupabaseEmailBackend"
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+
+if os.getenv("EMAIL_BACKEND"):
+    EMAIL_BACKEND = os.getenv("EMAIL_BACKEND")
+
+EMAIL_HOST = os.getenv("EMAIL_HOST", "")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "1") == "1"
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "0") == "1"
 
 # Serve the built React app (frontend/dist) from Django: one URL for everything.
 # ANCHOR: Single URL

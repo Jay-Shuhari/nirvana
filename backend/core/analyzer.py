@@ -20,9 +20,11 @@ LOCKFILES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock", 
 # * Tiny wrapper around the GitHub REST API.
 # ! Without GITHUB_TOKEN GitHub allows only 60 requests/hour per IP. Set the token in backend/.env.
 # TODO: handle HTTP 403 rate-limit with a friendlier message and retry-after.
-def gh(path, params=None):
+def gh(path, params=None, token=None):
     h = {"Accept": "application/vnd.github+json"}
+    if token: h["Authorization"] = "Bearer " + token
     if settings.GITHUB_TOKEN: h["Authorization"] = f"Bearer {settings.GITHUB_TOKEN}"
+    if token: h["Authorization"] = "Bearer " + token
     r = requests.get(f"https://api.github.com{path}", headers=h, params=params, timeout=20)
     r.raise_for_status()
     return r.json()
@@ -31,9 +33,9 @@ def gh(path, params=None):
 # * Entry point: returns (short_sha, metrics, evidence, stats). Called from views.submit.
 # TODO: analyse a specific commit chosen by the student (the `sha` parameter is wired but the UI does not send it yet).
 # TODO: fetch more than 100 commits (pagination).
-def analyze(repo, sha=None):
+def analyze(repo, sha=None, github_token=None):
     # STEP 1: fetch up to 100 recent commits.
-    commits = gh(f"/repos/{repo}/commits", {"per_page": 100, **({"sha": sha} if sha else {})})
+    commits = gh(f"/repos/{repo}/commits", {"per_page": 100, **({"sha": sha} if sha else {})}, token=github_token)
     if not commits: raise ValueError("Repository has no commits")
     head = commits[0]["sha"]
     # STEP 2: sort commits oldest to newest as (date, short sha, first message line).
@@ -52,7 +54,7 @@ def analyze(repo, sha=None):
     quality = 1 - len(generic) / len(rows)
 
     # STEP 5: list every file at the latest commit (one API call, recursive).
-    tree = gh(f"/repos/{repo}/git/trees/{head}", {"recursive": 1}).get("tree", [])
+    tree = gh(f"/repos/{repo}/git/trees/{head}", {"recursive": 1}, token=github_token).get("tree", [])
     paths = [t["path"] for t in tree if t["type"] == "blob"]
     names = {p.split("/")[-1] for p in paths}
     has = lambda pred: [p for p in paths if pred(p)]

@@ -63,44 +63,45 @@ npm run dev     # http://localhost:5173
 
 | Route                                                                                    | Purpose                                     |
 | ---------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `POST /api/auth/register`, `/api/auth/login`, `GET /api/me`                        | Accounts (JWT)                              |
-| `GET/POST /api/courses`, `POST /api/courses/join`, `PUT /api/courses/:id/rubric`   | Courses and rubric (weights must total 100) |
-| `GET/POST /api/projects`, `GET /api/projects/:id`, `POST /api/projects/:id/submit` | Projects and evaluations                    |
-| `POST /api/criteria/:id/override`                                                      | Supervisor override, reason required        |
-| `POST /api/submissions/:id/override`                                                   | Supervisor overall-grade override, reason required; `{"score": null}` resets |
+| `POST /api/auth/register`, `/api/auth/login`, `POST /api/auth/refresh`, `GET/PATCH /api/me` | Accounts and profile (JWT)              |
+| `GET/POST /api/courses`, `POST /api/courses/join`, `PUT /api/courses/:id/rubric`         | Courses and rubric (weights must total 100) |
+| `GET/POST /api/tasks`, `GET/DELETE /api/tasks/:id`                                       | Task assignments and task detail rosters    |
+| `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/:id`, `POST /api/projects/:id/submit` | Projects and one-time evaluations    |
+| `POST /api/criteria/:id/override`                                                        | Supervisor criterion score override         |
+| `POST /api/submissions/:id/override`                                                     | Supervisor overall-grade override/reset     |
+| `POST /api/github/install`, `GET /api/github/repositories`                               | GitHub App signed install & repo picker     |
+| `GET /api/github/setup`, `POST /api/github/webhook`                                      | GitHub App setup redirect & HMAC webhook    |
+| `GET /api/notifications`, `POST /api/notifications/read`                                 | In-app notifications inbox                  |
 
 ## Deploy
 
 Backend: Render/Railway with `gunicorn devtrace.wsgi`, env vars from `.env`, set `DEBUG=0` and `CORS_ORIGIN` to your site. Frontend: Vercel/Netlify with `VITE_API_URL` pointing at the backend.
 
-## Not built yet (from the brief)
-
-GitHub App install flow (public repos only for now), secret scanning inside file contents (only committed `.env`/key files are flagged), cohort dashboard with filters and CSV export, feedback threads, notifications, PDF report, validation page, dark-mode toggle (follows the system setting), mobile layouts beyond a stacked sidebar.
+For the full Vercel + GitHub App deployment guide, Supabase email & SMTP settings, database setup, and production verification checklist, see [git.md](git.md).
 
 ## Updating an existing install
 
 ```bash
 cd backend
-uv pip install -r requirements.txt
-uv run python manage.py migrate      # applies pending schema changes, including overall grade overrides
+python -m pip install -r requirements.txt
+python manage.py migrate      # applies pending schema changes
 ```
 
-Then paste `supabase/schema.sql` into the Supabase SQL Editor again so the new tables are locked.
+Then paste `supabase/schema.sql` into the Supabase SQL Editor again so any new tables are locked with RLS.
 
 ## AI requirements and rubric review (optional)
 
-The backend can use Google Gemini via its OpenAI-compatible endpoint; no extra package or frontend key is needed. It also supports Groq and xAI. When configured, the model checks task requirements and recommends points with an evidence-based rationale for each rubric criterion. These points are the automatic rubric scores; supervisors can override a criterion or the overall grade with a reason. Without all three provider settings, the requirements use the local keyword check and rubric scores use repository metrics.
+The backend can use Google Gemini via its OpenAI-compatible endpoint, Groq, or xAI. When configured, the assistant (**Ttonpa**) checks task requirements and recommends points with an evidence-based rationale for each enabled rubric criterion. These points serve as the initial automatic rubric scores; supervisors can override any criterion or the overall grade with a required written reason. Without provider settings, requirements use a local keyword check and rubric scores use repository metrics.
 
-1. Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/apikey).
+1. Create an API key in your chosen provider's console (e.g., [Google AI Studio](https://aistudio.google.com/apikey)).
 2. In `backend/.env`, set:
 
    ```dotenv
    LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
-   LLM_API_KEY=your_gemini_api_key
+   LLM_API_KEY=your_api_key
    LLM_MODEL=gemini-3.8-flash
    ```
 
-   `gemini-3.8-flash` is an example model from Google's compatibility guide. Check Google AI Studio for the models currently enabled for your key and use that exact model ID if it differs.
-3. Restart Django. On the next project evaluation, Gemini will review the task requirements (if present) and recommend rubric points with rationale. If the provider is unavailable, the app falls back to keyword requirements checks and metric-based rubric points.
+3. Restart Django. On the next project evaluation, Ttonpa will review task requirements and recommend rubric points with rationale. If the provider is unavailable, the app falls back to keyword checks and metric-based scoring.
 
-Keep the Gemini key only in `backend/.env` (or your backend host's secret environment settings). Never put it in `frontend/.env`, a `VITE_*` variable, source code, or a committed file. The backend sends the selected repository files to Gemini when AI review is configured; tell users about this data transfer. See [docs/AI-Analysis.md](docs/AI-Analysis.md) and Google's [OpenAI compatibility guide](https://ai.google.dev/gemini-api/docs/openai).
+Keep your AI API key only in `backend/.env` (or your backend host's secret environment settings). Never put it in `frontend/.env`, a `VITE_*` variable, source code, or a committed file. See [docs/AI-Analysis.md](docs/AI-Analysis.md).

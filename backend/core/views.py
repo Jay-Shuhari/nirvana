@@ -5,14 +5,21 @@
 # SEE:  docs/Architecture.md, .tours/02-request-from-click-to-database.tour
 # ======================================================================
 import csv
+import hashlib
+import hmac
+import json
+import logging
 import re
 from datetime import date, timedelta
 
 import requests
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny
@@ -20,20 +27,48 @@ from rest_framework.response import Response
 
 from .ai import review_submission
 from .analyzer import analyze, gh
-from .models import Course, CriterionScore, Notification, Project, Submission, Task
+from .github_app import (
+    GitHubAppError,
+    repositories_for_user,
+    token_for_repository,
+    verify_installation,
+)
+from .models import (
+    Course,
+    CriterionScore,
+    GitHubInstallation,
+    GitHubInstallState,
+    Notification,
+    Project,
+    Submission,
+    Task,
+)
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 # ANCHOR: Limits
 # * Tune these. They stop a student registering endless projects or hammering GitHub.
 MAX_PROJECTS_PER_STUDENT = 10
-MAX_SUBMISSIONS_PER_DAY = 5
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 # ANCHOR: Helpers
 def notify(user, text, link=""):
     """* Adds an item to a user's in-app inbox (sidebar badge + Notifications page)."""
     Notification.objects.create(user=user, text=text[:240], link=link)
+    if settings.EMAIL_NOTIFICATIONS_ENABLED and user.email:
+        from django.core.mail import send_mail
+
+        try:
+            send_mail(
+                "Nirvana notification",
+                f"{text[:240]}\n\nOpen Nirvana: {settings.FRONTEND_URL}{link}",
+                settings.DEFAULT_FROM_EMAIL or settings.EMAIL_HOST_USER,
+                [user.email],
+                fail_silently=False,
+            )
+        except Exception:
+            logger.exception("Could not email notification to user %s", user.pk)
 
 def name_of(u): return u.get_full_name() or u.username
 
@@ -64,6 +99,7 @@ def project_json(p, full=False, viewer=None):
     latest = next((x for x in p.submissions.all() if x.status == "done"), None)
     d = {"id": p.id, "name": p.name, "repo": p.repo, "student": user_json(p.student), "created": p.created,
          "task": task_brief(p.task), "can_edit": bool(viewer and viewer.id == p.student_id),
+         "submission_locked": p.submission_locked,
          "course": {"id": p.course_id, "code": p.course.code, "title": p.course.title,
                     "supervisor": name_of(p.course.supervisor)},
          "latest": sub_json(latest) if latest and not full else None}
@@ -91,10 +127,14 @@ def norm_repo(raw):
     if not REPO_RE.match(r): raise ValidationError("Enter the repository as owner/name, for example jane-doe/my-app.")
     return r
 
-def check_repo(repo):
+def check_repo(repo, user=None, installation_id=None):
     """! Fail at REGISTRATION (not at submit) when the repo is missing, private or GitHub is unreachable."""
     try:
-        gh(f"/repos/{repo}")
+        app_token = token_for_repository(user, repo, installation_id) if user else None
+        if installation_id and not app_token:
+            raise ValidationError("This repository is not available to the selected GitHub App installation.")
+        gh(f"/repos/{repo}", token=app_token)
+        return app_token
     except requests.HTTPError as e:
         code = e.response.status_code if e.response is not None else 0
         if code == 404: raise ValidationError("Repository not found. Check the spelling, or it may be private.")
@@ -102,6 +142,8 @@ def check_repo(repo):
         raise ValidationError(f"GitHub returned an error ({code}).")
     except requests.RequestException:
         raise ValidationError("Could not reach GitHub. Check the internet connection.")
+    except GitHubAppError as e:
+        raise ValidationError(str(e))
 
 # ANCHOR: Authentication
 @api_view(["POST"])
@@ -151,6 +193,85 @@ def notifications_read(request):
     request.user.notifications.filter(read=False).update(read=True)
     return Response({"ok": True})
 
+# ANCHOR: GitHub App
+@api_view(["POST"])
+def github_install_start(request):
+    if not settings.GITHUB_APP_SLUG or not settings.GITHUB_APP_ID:
+        return Response({"detail": "GitHub App setup is not configured on the backend."}, status=503)
+    if not settings.GITHUB_APP_PRIVATE_KEY:
+        return Response({"detail": "GitHub App credentials are not configured on the backend."}, status=503)
+    state = GitHubInstallState.objects.create(user=request.user)
+    url = f"https://github.com/apps/{settings.GITHUB_APP_SLUG}/installations/new?state={state.nonce}"
+    return Response({"url": url})
+
+
+def github_install_setup(request):
+    state_value = request.GET.get("state", "")
+    installation_id = request.GET.get("installation_id", "")
+    if request.GET.get("setup_action") != "install" or not installation_id or not state_value:
+        return HttpResponse("GitHub installation was not completed.", status=400)
+    try:
+        state = GitHubInstallState.objects.get(
+            nonce=state_value,
+            consumed=False,
+            created__gte=timezone.now() - timedelta(minutes=15),
+        )
+        installation_id = int(installation_id)
+        verify_installation(installation_id)
+    except (GitHubInstallState.DoesNotExist, TypeError, ValueError):
+        return HttpResponse("GitHub installation state is invalid or expired.", status=400)
+    except (GitHubAppError, requests.RequestException):
+        logger.exception("Could not verify GitHub installation %s", installation_id)
+        return HttpResponse("Could not verify this GitHub installation.", status=502)
+
+    state.consumed = True
+    state.save(update_fields=["consumed"])
+    GitHubInstallation.objects.update_or_create(
+        installation_id=installation_id,
+        defaults={"user": state.user, "active": True, "suspended": False},
+    )
+    return HttpResponseRedirect(f"{settings.FRONTEND_URL}/settings?github=connected")
+
+
+@api_view(["GET"])
+def github_repositories(request):
+    try:
+        return Response(repositories_for_user(request.user))
+    except (GitHubAppError, requests.RequestException):
+        logger.exception("Could not list GitHub repositories for user %s", request.user.pk)
+        return Response({"detail": "Could not load repositories from GitHub."}, status=502)
+@csrf_exempt
+@require_POST
+def github_webhook(request):
+    if not settings.GITHUB_WEBHOOK_SECRET:
+        return JsonResponse({"detail": "Webhook secret is not configured."}, status=503)
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    digest = hmac.new(
+        settings.GITHUB_WEBHOOK_SECRET.encode(),
+        request.body,
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(signature, f"sha256={digest}"):
+        return JsonResponse({"detail": "Invalid webhook signature."}, status=403)
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"detail": "Invalid webhook JSON."}, status=400)
+    if request.headers.get("X-GitHub-Event") != "installation":
+        return JsonResponse({"ok": True})
+    installation_id = payload.get("installation", {}).get("id")
+    action = payload.get("action")
+    if not installation_id or action not in {"deleted", "suspend", "unsuspend"}:
+        return JsonResponse({"ok": True})
+    installations = GitHubInstallation.objects.filter(installation_id=installation_id)
+    if action == "deleted":
+        installations.delete()
+    elif action == "suspend":
+        installations.update(suspended=True)
+    else:
+        installations.update(suspended=False, active=True)
+    return JsonResponse({"ok": True})
+
 # ANCHOR: Courses
 @api_view(["GET", "POST"])
 def courses(request):
@@ -196,9 +317,29 @@ def course_detail(request, pk):
 @api_view(["PUT"])
 def save_rubric(request, pk):
     c = get_object_or_404(Course, pk=pk, supervisor=request.user)
-    r = request.data["rubric"]
-    total = sum(int(x["weight"]) for x in r)
-    if total != 100: raise ValidationError(f"Total {total}%. Weights must total 100%.")  # ! also enforced in the UI
+    r = request.data.get("rubric")
+    if not isinstance(r, list) or not r:
+        raise ValidationError("Add at least one rubric criterion.")
+    try:
+        for item in r:
+            is_enabled = item.get("enabled", True)
+            if not isinstance(is_enabled, bool):
+                raise ValueError
+            if not isinstance(item, dict):
+                raise ValueError
+            item["name"] = str(item["name"]).strip()[:80]
+            item["metric"] = str(item.get("metric", "custom")).strip()[:40]
+            item["weight"] = int(item["weight"])
+            item["enabled"] = is_enabled
+            if not item["name"] or not 0 <= item["weight"] <= 100:
+                raise ValueError
+    except (KeyError, TypeError, ValueError):
+        raise ValidationError("Each criterion needs a name and a weight from 0 to 100.")
+    enabled = [item for item in r if item["enabled"]]
+    if not enabled:
+        raise ValidationError("Enable at least one rubric criterion.")
+    total = sum(item["weight"] for item in enabled)
+    if total != 100: raise ValidationError(f"Enabled criteria total {total}%. Their weights must total 100%.")
     c.rubric = r; c.save()
     return Response({"ok": True})
 
@@ -223,10 +364,37 @@ def tasks(request):
     qs = Task.objects.filter(course__supervisor=u) if u.role == "supervisor" else Task.objects.filter(course__students=u)
     return Response([task_json(t, u) for t in qs.select_related("course").order_by("-created")])
 
-@api_view(["DELETE"])
+@api_view(["GET", "DELETE"])
 def task_detail(request, pk):
     """! Deleting a task keeps student projects (task becomes NULL); their evaluations stay."""
-    get_object_or_404(Task, pk=pk, course__supervisor=request.user).delete()
+    task = get_object_or_404(
+        Task.objects.select_related("course"),
+        pk=pk,
+        **({"course__supervisor": request.user} if request.user.role == "supervisor"
+           else {"course__students": request.user}),
+    )
+    if request.method == "GET":
+        students = task.course.students.order_by("first_name", "username")
+        if request.user.role == "student":
+            students = students.filter(pk=request.user.pk)
+        return Response({
+            **task_json(task, request.user),
+            "description": task.description,
+            "requirements": task.requirements,
+            "students": [
+                {
+                    "id": student.id,
+                    "name": name_of(student),
+                    "matric": student.matric,
+                    "project": project_json(project, viewer=request.user)
+                    if (project := task.projects.filter(student=student).first()) else None,
+                }
+                for student in students
+            ],
+        })
+    if request.user.role != "supervisor":
+        raise PermissionDenied()
+    task.delete()
     return Response(status=204)
 
 # ANCHOR: Projects
@@ -247,8 +415,25 @@ def projects(request):
         if u.projects.count() >= MAX_PROJECTS_PER_STUDENT: raise ValidationError(f"You can have at most {MAX_PROJECTS_PER_STUDENT} projects. Delete one first.")
         if t and u.projects.filter(task=t).exists(): raise ValidationError("You already registered a project for this task.")
         if Project.objects.filter(course=c, repo__iexact=repo).exists(): raise ValidationError("This repository is already registered in this course.")
-        check_repo(repo)
-        p = Project.objects.create(student=u, course=c, task=t, name=name[:120], repo=repo)
+        installation_id = d.get("installation_id")
+        installation = None
+        if installation_id:
+            installation = get_object_or_404(
+                GitHubInstallation,
+                user=u,
+                installation_id=installation_id,
+                active=True,
+                suspended=False,
+            )
+        check_repo(repo, u, installation.installation_id if installation else None)
+        p = Project.objects.create(
+            student=u,
+            course=c,
+            task=t,
+            name=name[:120],
+            repo=repo,
+            github_installation=installation,
+        )
         notify(c.supervisor, f"{name_of(u)} registered {p.name}", f"/projects/{p.id}")
         return Response({"id": p.id}, status=201)
     qs = Project.objects.filter(course__supervisor=u) if u.role == "supervisor" else u.projects.all()
@@ -268,7 +453,7 @@ def project_detail(request, pk):
         if repo.lower() != p.repo.lower():
             if p.submissions.exists(): raise ValidationError("The repository can't change after a submission. Delete the project and register again.")
             if Project.objects.filter(course=p.course, repo__iexact=repo).exclude(pk=p.pk).exists(): raise ValidationError("This repository is already registered in this course.")
-            check_repo(repo)
+            check_repo(repo, request.user, p.github_installation_id)
         p.name, p.repo = name[:120], repo
         p.save()
     return Response(project_json(p, full=True, viewer=request.user))
@@ -280,19 +465,33 @@ def submit(request, pk):
     ? Why synchronous? Simple for v1: the request waits for GitHub (a few seconds).
     TODO: move analyze() to a background worker (Celery/RQ) and poll status from the UI."""
     p = get_object_or_404(Project, pk=pk, student=request.user)
-    if p.submissions.filter(created__gte=timezone.now() - timedelta(days=1)).count() >= MAX_SUBMISSIONS_PER_DAY:
-        raise ValidationError(f"Daily limit reached ({MAX_SUBMISSIONS_PER_DAY} submissions per project). Try again tomorrow.")
-    s = Submission.objects.create(project=p)  # * created first so a failure still appears in History
+    if p.task and p.task.due and timezone.localdate() > p.task.due:
+        raise ValidationError(f"This task's deadline ({p.task.due}) has passed.")
+    if p.submission_locked:
+        raise ValidationError("This project has already been submitted for evaluation.")
+    if not Project.objects.filter(pk=p.pk, submission_locked=False).update(submission_locked=True):
+        raise ValidationError("This project has already been submitted for evaluation.")
+    p.refresh_from_db()
+    s = Submission.objects.create(project=p, status="running")
     try:
-        sha, m, evidence, stats = analyze(p.repo, request.data.get("sha"))
+        github_token = None
+        if p.github_installation_id:
+            github_token = token_for_repository(
+                request.user, p.repo, p.github_installation_id
+            )
+            if not github_token:
+                raise GitHubAppError("This repository is no longer available to the connected GitHub App.")
+        sha, m, evidence, stats = analyze(p.repo, request.data.get("sha"), github_token)
         paths = stats.pop("paths", [])
     except Exception as e:  # ! GitHub/network errors are stored on the submission instead of crashing
         s.status, s.error = "failed", str(e)[:300]; s.save()
         return Response({"id": s.id, "status": "failed", "error": s.error}, status=502)
+    s.status = "done"
     s.sha, s.metrics, s.evidence = sha, {"values": m, "stats": stats}, evidence
-    s.ai = review_submission(p.repo, p.task, p.course.rubric, paths, m, evidence)
+    enabled_rubric = [item for item in p.course.rubric if item.get("enabled", True)]
+    s.ai = review_submission(p.repo, p.task, enabled_rubric, paths, m, evidence, github_token)
     s.save()
-    for r in p.course.rubric:
+    for r in enabled_rubric:
         recommendation = next((item for item in s.ai["rubric"]["items"]
                                if item["criterion"] == r["name"] and item["metric"] == r["metric"]), None)
         if recommendation:

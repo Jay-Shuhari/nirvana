@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib import admin
 from django.http import HttpResponse, JsonResponse
 from django.urls import include, path, re_path
+from core import views as core_views
 
 # ANCHOR: React catch-all
 # ? Why? React Router handles pages like /projects/5 in the browser. If you refresh there, Django must still return index.html.
@@ -21,6 +22,8 @@ def spa(request, *args, **kwargs):
 # ANCHOR: Routes
 urlpatterns = [
     path("healthz", lambda request: JsonResponse({"ok": True})),
+    path("api/github/setup", core_views.github_install_setup),
+    path("api/github/webhook", core_views.github_webhook),
     path("admin/", admin.site.urls),
     path("api/", include("core.urls")),
     # ! Must stay LAST: it matches everything except api/, admin/ and static/.

@@ -20,6 +20,7 @@ import Notifications from "./pages/Notifications.jsx";
 import Project from "./pages/Project.jsx";
 import Settings from "./pages/Settings.jsx";
 import Tasks from "./pages/Tasks.jsx";
+import TaskDetail from "./pages/TaskDetail.jsx";
 
 function AppSkeleton() {
   return (<>
@@ -53,13 +54,43 @@ export default function App() {
   const [user, setUser] = useState(null); // * null until /api/me confirms the token
   const [ready, setReady] = useState(!token.get());
   const [open, setOpen] = useState(false); // * mobile drawer
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [layout, setLayout] = useState(localStorage.getItem("dt_layout") || "sidebar");
   const nav = useNavigate();
   const loc = useLocation();
   const refresh = useCallback(() => api("/me").then(setUser), []);
 
   // STEP 1: on first load, if a token exists, ask the server who we are.
-  useEffect(() => { if (token.get()) refresh().catch(() => token.clear()).finally(() => setReady(true)); }, [refresh]);
+  useEffect(() => {
+    if (token.get()) refresh().catch(() => token.clear()).finally(() => setReady(true));
+  }, [refresh]);
   useEffect(() => setOpen(false), [loc.pathname]); // close the drawer after navigating
+  useEffect(() => { document.documentElement.dataset.layout = layout; }, [layout]);
+
+  useEffect(() => {
+    const onExpired = () => setUser(null);
+    const onLayout = (e) => setLayout(e.detail);
+    window.addEventListener("dt_session_expired", onExpired);
+    window.addEventListener("dt_layout_change", onLayout);
+    return () => {
+      window.removeEventListener("dt_session_expired", onExpired);
+      window.removeEventListener("dt_layout_change", onLayout);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!accountOpen) return;
+    const onKey = (e) => { if (e.key === "Escape") setAccountOpen(false); };
+    const onClickOutside = (e) => {
+      if (!e.target.closest(".account-menu-wrap")) setAccountOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("click", onClickOutside);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("click", onClickOutside);
+    };
+  }, [accountOpen]);
 
   if (!ready) return <AppSkeleton />; // ? keeps the app shell visible while the saved session is checked
   if (!user) return <Auth onLogin={setUser} />; // STEP 2: not logged in -> login/register card
@@ -69,7 +100,24 @@ export default function App() {
     {to === "/notifications" && user.unread > 0 && <span className="count">{user.unread}</span>}</NavLink>;
 
   return (<>
-    <header className="topbar"><button className="btn icon" onClick={() => setOpen(true)} aria-label="Open menu"><Icon name="menu" /></button><span className="logo">Nirvana</span></header>
+    <header className="topbar">
+      <button className="btn icon mobile-layout-menu" onClick={() => setOpen(true)} aria-label="Open menu"><Icon name="menu" /></button>
+      <span className="logo">Nirvana</span>
+      <div className="account-actions">
+        <NavLink className="btn icon" to="/notifications" aria-label="Notifications"><Icon name="bell" /></NavLink>
+        <div className="account-menu-wrap">
+          <button className="btn icon account-trigger" onClick={() => setAccountOpen(!accountOpen)} aria-label="Account menu" aria-expanded={accountOpen}>
+            <Avatar name={user.name} size={26} />
+          </button>
+          {accountOpen && <div className="account-menu">
+            <div className="account-menu-name"><b>{user.name}</b><span>{user.email}</span></div>
+            <NavLink to="/settings" onClick={() => setAccountOpen(false)}><Icon name="settings" />Settings</NavLink>
+            <NavLink to="/help" onClick={() => setAccountOpen(false)}><Icon name="help" />Help</NavLink>
+            <button onClick={out}><Icon name="logout" />Sign out</button>
+          </div>}
+        </div>
+      </div>
+    </header>
     {open && <div className="scrim" onClick={() => setOpen(false)} />}
     <aside className={`side ${open ? "open" : ""}`}>
       <div className="brand logo">Nirvana</div>
@@ -86,6 +134,12 @@ export default function App() {
           <button className="btn icon" onClick={out} aria-label="Log out" title="Log out"><Icon name="logout" /></button></div>
       </div>
     </aside>
+    <nav className="mobile-bottom-nav" aria-label="Primary">
+      {link("/", "dashboard", "Home", true)}
+      {link("/courses", "book", sup ? "Courses" : "Courses")}
+      {link("/tasks", "tasks", "Tasks")}
+      {link("/notifications", "bell", "Alerts")}
+    </nav>
     <main className="main">
       <Routes>
         <Route path="/" element={<Dashboard user={user} />} />
@@ -93,6 +147,7 @@ export default function App() {
         <Route path="/courses/:id" element={<CourseDetail />} />
         <Route path="/courses/:id/cohort" element={<Cohort />} />
         <Route path="/tasks" element={<Tasks user={user} />} />
+        <Route path="/tasks/:id" element={<TaskDetail user={user} />} />
         <Route path="/projects/new" element={<NewProject />} />
         <Route path="/projects/:id" element={<Project user={user} />} />
         <Route path="/notifications" element={<Notifications refresh={refresh} />} />

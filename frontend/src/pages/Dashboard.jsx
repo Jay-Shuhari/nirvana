@@ -45,8 +45,8 @@ function Student({ user }) {
     </tbody></table>}
 
     {open.length > 0 && <><h2>Open tasks</h2><div className="panel list">
-      {open.slice(0, 4).map((t) => <div key={t.id} className="row between wrap"><div><b>{t.title}</b><div className="grey">{t.course.code}{t.due ? ` · due ${t.due}` : ""}</div></div>
-        <Link className="btn sm" to={`/projects/new?task=${t.id}`}><span>Start</span></Link></div>)}</div></>}
+      {open.slice(0, 4).map((t) => <div key={t.id} className="row between wrap"><div><Link to={`/tasks/${t.id}`}><b>{t.title}</b></Link><div className="grey">{t.course.code}{t.due ? ` · due ${t.due}` : ""}</div></div>
+        <Link className="btn sm" to={`/tasks/${t.id}`}><span>Open task</span></Link></div>)}</div></>}
   </>);
 }
 
