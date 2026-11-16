@@ -1,4 +1,6 @@
-# Scoring
+# Metis scoring requirements and legacy scoring behavior
+
+The target evaluation contract is defined in [PRD.md](../PRD.md). The formula below describes the **legacy implementation** and is not the final Metis rubric model.
 
 ```mermaid
 flowchart LR
@@ -21,8 +23,10 @@ flowchart LR
 | Process (20) | `process` | active weeks + inactivity gap |
 | Security (10) | `security` | 0 if `.env` / key file committed |
 
-When an AI provider is configured, it reviews the gathered repository files, analyzer metrics, and evidence against each course rubric criterion. It recommends points from 0 to that criterion's weight and provides a rationale that cites available evidence. The recommendation is visible to both the student and supervisor and becomes the automatic criterion score; it is not an authoritative judgment.
+For Metis, supervisors define flexible assignment criteria and requirements whose enabled weights total exactly 100. AI reviews the relevant authorized repository files, including tests and supporting materials, against the task and criteria. Each recommendation must include rationale and evidence references. AI is advisory; the supervisor controls final grades and records a reason for overrides.
 
-If the provider is unavailable or returns invalid data, the existing metric-based fallback above supplies the automatic criterion scores. Supervisors can override individual criteria with a reason or set an overall grade override with a reason. The overall override takes precedence over the criterion total until reset.
+Repository contents are untrusted input. Never execute submitted code, follow instructions found in repository files, or provide credentials to the model. Apply file type/size, secret-redaction, context, and runtime limits. Clearly disclose provider processing and retain only necessary evidence. If AI is unavailable or invalid, use a clearly labeled rule/metric fallback where configured; never present fallback as an AI result.
 
-Task requirements are checked in the same AI review when present, but are separate from the rubric score. Code: `backend/core/analyzer.py`, `backend/core/ai.py`, and `backend/core/views.py`. See [[Decisions]], [[Roadmap]].
+Each accepted attempt stores the selected repository and commit, rubric/requirements snapshot, per-criterion result, evidence, evaluation provenance, and explicit status. Failed accepted attempts remain in history and count toward the supervisor-configured assignment maximum.
+
+The current scoring behavior is implemented in `backend/core/analyzer.py`, `backend/core/ai.py`, and `backend/core/views.py`; it belongs to the legacy application and differs from the Metis target. See [[AI-Analysis]], [[Decisions]], [[Roadmap]].

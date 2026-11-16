@@ -68,8 +68,8 @@ class EmailNotificationTests(TestCase):
         mock_send_mail.assert_called_once()
         args, kwargs = mock_send_mail.call_args
         subject, body, from_email, recipient_list = args
-        self.assertIn("Nirvana notification", subject)
-        self.assertIn("https://nirvana.example.com/projects/new?task=", body)
+        self.assertIn("Metis notification", subject)
+        self.assertIn("https://nirvana.example.com/tasks/", body)
         self.assertEqual(from_email, "noreply@nirvana.test")
         self.assertEqual(recipient_list, ["student@example.com"])
 

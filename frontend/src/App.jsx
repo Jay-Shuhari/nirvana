@@ -5,7 +5,7 @@
 // SEE:  .tours/02-request-from-click-to-database.tour
 // ======================================================================
 import { useCallback, useEffect, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api, token } from "./api.js";
 import { Avatar, Icon } from "./components/ui.jsx";
 import PageSkeleton from "./components/Skeleton.jsx";
@@ -15,12 +15,19 @@ import CourseDetail from "./pages/CourseDetail.jsx";
 import Courses from "./pages/Courses.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Help from "./pages/Help.jsx";
-import NewProject from "./pages/NewProject.jsx";
-import Notifications from "./pages/Notifications.jsx";
+import Inbox from "./pages/Inbox.jsx";
+import Landing from "./pages/Landing.jsx";
+import Onboarding from "./pages/Onboarding.jsx";
 import Project from "./pages/Project.jsx";
 import Settings from "./pages/Settings.jsx";
-import Tasks from "./pages/Tasks.jsx";
 import TaskDetail from "./pages/TaskDetail.jsx";
+import { signOutProvider } from "./lib/firebase.js";
+
+// * Old links (emails, bookmarks) pointed at /projects/new?task=ID. Starting a task now happens on the task page.
+function LegacyNewProject() {
+  const [sp] = useSearchParams();
+  return <Navigate to={sp.get("task") ? `/tasks/${sp.get("task")}` : "/tasks"} replace />;
+}
 
 function AppSkeleton() {
   return (<>
@@ -93,18 +100,24 @@ export default function App() {
   }, [accountOpen]);
 
   if (!ready) return <AppSkeleton />; // ? keeps the app shell visible while the saved session is checked
-  if (!user) return <Auth onLogin={setUser} />; // STEP 2: not logged in -> login/register card
+  const out = () => { token.clear(); signOutProvider(); setUser(null); nav("/"); }; // * logout = forget the token
+  // STEP 2: not logged in -> public landing page at "/", sign-in everywhere else (keeps deep links)
+  if (!user) return <Routes>
+    <Route path="/" element={<Landing />} />
+    <Route path="*" element={<Auth onLogin={setUser} />} />
+  </Routes>;
+  // STEP 3: signed in but setup unfinished -> onboarding on every route (the server enforces the same gate)
+  if (!user.onboarding?.complete) return <Onboarding user={user} onDone={refresh} onSignOut={out} />;
   const sup = user.role === "supervisor";
-  const out = () => { token.clear(); setUser(null); nav("/"); }; // * logout = forget the token
   const link = (to, icon, label, end) => <NavLink to={to} end={end} className={({ isActive }) => (isActive ? "on" : "")}><Icon name={icon} />{label}
-    {to === "/notifications" && user.unread > 0 && <span className="count">{user.unread}</span>}</NavLink>;
+    {to === "/inbox" && user.unread > 0 && <span className="count" aria-label={`${user.unread} unread`}>{user.unread}</span>}</NavLink>;
 
   return (<>
     <header className="topbar">
       <button className="btn icon mobile-layout-menu" onClick={() => setOpen(true)} aria-label="Open menu"><Icon name="menu" /></button>
-      <span className="logo">Nirvana</span>
+      <span className="logo">Metis</span>
       <div className="account-actions">
-        <NavLink className="btn icon" to="/notifications" aria-label="Notifications"><Icon name="bell" /></NavLink>
+        <NavLink className="btn icon" to="/inbox?tab=activity" aria-label={`Inbox${user.unread ? `, ${user.unread} unread` : ""}`}><Icon name="bell" /></NavLink>
         <div className="account-menu-wrap">
           <button className="btn icon account-trigger" onClick={() => setAccountOpen(!accountOpen)} aria-label="Account menu" aria-expanded={accountOpen}>
             <Avatar name={user.name} size={26} />
@@ -120,12 +133,11 @@ export default function App() {
     </header>
     {open && <div className="scrim" onClick={() => setOpen(false)} />}
     <aside className={`side ${open ? "open" : ""}`}>
-      <div className="brand logo">Nirvana</div>
-      <nav>
+      <div className="brand logo">Metis</div>
+      <nav aria-label="Primary">
         {link("/", "dashboard", "Dashboard", true)}
         {link("/courses", "book", sup ? "Courses" : "My courses")}
-        {link("/tasks", "tasks", "Tasks")}
-        {link("/notifications", "bell", "Notifications")}
+        {link("/inbox", "inbox", "Inbox")}
       </nav>
       <div className="bottom">
         {link("/settings", "settings", "Settings")}
@@ -136,23 +148,26 @@ export default function App() {
     </aside>
     <nav className="mobile-bottom-nav" aria-label="Primary">
       {link("/", "dashboard", "Home", true)}
-      {link("/courses", "book", sup ? "Courses" : "Courses")}
-      {link("/tasks", "tasks", "Tasks")}
-      {link("/notifications", "bell", "Alerts")}
+      {link("/courses", "book", "Courses")}
+      {link("/inbox", "inbox", "Inbox")}
+      {link("/settings", "settings", "Settings")}
     </nav>
     <main className="main">
       <Routes>
         <Route path="/" element={<Dashboard user={user} />} />
         <Route path="/courses" element={<Courses user={user} />} />
-        <Route path="/courses/:id" element={<CourseDetail />} />
+        <Route path="/courses/:id" element={<CourseDetail user={user} />} />
         <Route path="/courses/:id/cohort" element={<Cohort />} />
-        <Route path="/tasks" element={<Tasks user={user} />} />
+        <Route path="/inbox" element={<Inbox user={user} refresh={refresh} />} />
+        <Route path="/tasks" element={<Navigate to="/inbox" replace />} />
+        <Route path="/notifications" element={<Navigate to="/inbox?tab=activity" replace />} />
         <Route path="/tasks/:id" element={<TaskDetail user={user} />} />
-        <Route path="/projects/new" element={<NewProject />} />
+        <Route path="/projects/new" element={<LegacyNewProject />} />
         <Route path="/projects/:id" element={<Project user={user} />} />
-        <Route path="/notifications" element={<Notifications refresh={refresh} />} />
         <Route path="/settings" element={<Settings user={user} refresh={refresh} />} />
         <Route path="/help" element={<Help />} />
+        <Route path="/login" element={<Navigate to="/" replace />} />
+        <Route path="/signup" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </main>

@@ -10,7 +10,8 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from .github_app import GitHubAppError
-from .models import Course, GitHubInstallation, GitHubInstallState, Project, User
+from .models import Course, GitHubInstallation, GitHubInstallState, Project, Task, User
+from .test_people import make_ready
 
 
 class GitHubAppAccessTests(TestCase):
@@ -134,13 +135,14 @@ class GitHubAppAccessTests(TestCase):
 
     @patch("core.views.token_for_repository", return_value=None)
     def test_project_registration_rejects_repo_outside_installation(self, _token):
-        installation = GitHubInstallation.objects.create(user=self.user, installation_id=888)
+        installation = make_ready(self.user, installation_id=888)
+        task = Task.objects.create(course=self.course, title="Task 1")
         response = self.client.post(
             "/api/projects",
             {
                 "name": "Outside Repo",
                 "repo": "owner/outside-repo",
-                "course": self.course.id,
+                "task": task.id,
                 "installation_id": installation.installation_id,
             },
             format="json",

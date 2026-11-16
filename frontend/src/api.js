@@ -44,8 +44,19 @@ export async function api(path, { method = "GET", body } = {}, retry = true) {
       window.dispatchEvent(new Event("dt_session_expired"));
     }
   }
-  if (!res.ok) throw new Error(data.detail || (Array.isArray(data) ? data[0] : Object.values(data)[0]) || "Something went wrong");
+  if (!res.ok) throw apiError(res.status, data);
   return data;
+}
+
+// ANCHOR: apiError
+// * Keeps the human message plus machine-readable field errors so forms can show them next to each field.
+function apiError(status, data) {
+  const fields = data && typeof data === "object" && !Array.isArray(data) && !data.detail
+    ? Object.fromEntries(Object.entries(data).map(([k, v]) => [k, Array.isArray(v) ? String(v[0]) : String(v)]))
+    : {};
+  const first = Object.values(fields)[0];
+  const message = data?.detail || (Array.isArray(data) ? data[0] : first) || (status >= 500 ? "The server could not finish this request. Try again." : "Something went wrong");
+  return Object.assign(new Error(message), { status, fields, code: data?.code });
 }
 // * Status-dot colour from a score: green 75+, amber 55+, red below. The ONLY colour in the UI.
 export const dot = (s) => (s >= 75 ? "var(--good)" : s >= 55 ? "var(--warn)" : "var(--bad)");

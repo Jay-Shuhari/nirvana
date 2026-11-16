@@ -1,4 +1,6 @@
-# Dev process
+# Legacy development history
+
+This timeline records how the existing Nirvana/DevTrace code was built. It is historical context, not a plan or completion report for the Metis rebuild. See [PRD.md](../PRD.md) and [Roadmap.md](Roadmap.md) for the target.
 
 The whole build, in order. Each step links to what it produced.
 
@@ -23,7 +25,7 @@ flowchart LR
 7. **Cohort dashboard** - supervisor table, distribution chart, compare, CSV.
 8. **Single URL** - Django serves the built React app, so everything lives on one address. See [[Decisions]].
 9. **Docs and tours** - this folder and `.tours/`.
-10. **Nirvana release** - rebrand, tasks + AI requirements check ([[AI-Analysis]]), project management, limits, notifications, settings, help, toasts, fixed side nav, mobile drawer.
+10. **Legacy Nirvana release** - historical implementation of tasks, AI requirements checks ([[AI-Analysis]]), project management, notifications, settings, help, and navigation.
 
 ## Bugs found while building
 - Lookups crashed with HTTP 500 instead of 404 -> fixed with `get_object_or_404`. See [[Troubleshooting]].

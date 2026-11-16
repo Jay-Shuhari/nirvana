@@ -97,6 +97,15 @@ GITHUB_APP_PRIVATE_KEY = os.getenv("GITHUB_APP_PRIVATE_KEY", "").replace("\\n", 
 GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 
+# ANCHOR: Identity (Firebase Authentication for Google/GitHub sign-in)
+# * Only the public project id is needed to verify ID tokens; no service-account key on the server.
+FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "")
+# * Academy policy: verified emails here (or ending in a listed @domain) become supervisors on first sign-in.
+#   Users can never pick the supervisor role themselves.
+SUPERVISOR_EMAILS = [e.lower() for e in env_list("SUPERVISOR_EMAILS")]
+# * Legacy email/password sign-in for accounts created before Google/GitHub sign-in. New sign-ups use providers.
+LEGACY_PASSWORD_SIGNUP = os.getenv("LEGACY_PASSWORD_SIGNUP", "1" if DEBUG else "0") == "1"
+
 # ANCHOR: Supabase configuration
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
@@ -110,7 +119,7 @@ EMAIL_PROVIDER = os.getenv(
     "supabase" if (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY) else "smtp",
 ).lower()
 EMAIL_NOTIFICATIONS_ENABLED = os.getenv("EMAIL_NOTIFICATIONS_ENABLED", "0") == "1"
-DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Nirvana <notifications@nirvana.app>")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Metis <notifications@metis.app>")
 
 if EMAIL_PROVIDER == "supabase":
     EMAIL_BACKEND = "core.email.SupabaseEmailBackend"

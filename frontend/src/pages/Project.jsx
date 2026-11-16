@@ -96,8 +96,8 @@ export default function Project({ user }) {
 
     {edit && <form className="panel" style={{ marginTop: 16 }} onSubmit={saveEdit}>
       <label style={{ marginTop: 0 }}>Project name</label><input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
-      <label>Repository</label><input value={edit.repo} disabled={p.submissions.length > 0} onChange={(e) => setEdit({ ...edit, repo: e.target.value })} />
-      {p.submissions.length > 0 && <div className="help">The repository is locked after the first submission.</div>}
+      <label>Repository</label><input className="mono" value={edit.repo} disabled readOnly />
+      <div className="help">Repositories come from your Metis GitHub App. {p.submissions.length > 0 ? "It is locked after the first submission." : "To use a different one, delete this project and start the task again."}</div>
       <div className="row" style={{ marginTop: 16 }}><button type="button" className="btn" onClick={() => setEdit(null)}><span>Cancel</span></button><button className="btn primary"><span>Save changes</span></button></div></form>}
 
     <dl className="props"><dt>Repository</dt><dd className="mono">github.com/{p.repo}</dd><dt>Course</dt><dd>{p.course.code} {p.course.title}</dd><dt>Supervisor</dt><dd>{p.course.supervisor}</dd>

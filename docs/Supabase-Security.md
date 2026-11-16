@@ -1,4 +1,6 @@
-# Supabase and security
+# Legacy Supabase security
+
+These notes apply to the existing Django/Supabase deployment. Supabase is not yet a confirmed Metis rebuild choice; see [PRD.md](../PRD.md) and [Architecture.md](Architecture.md) before reusing this configuration.
 
 - Django connects with the **Session pooler** URI in `DATABASE_URL`.
 - Supabase publishes every `public` table through its REST API, guarded only by the **anon key**, which is visible in the browser. So `supabase/schema.sql` enables **Row Level Security** and revokes anon/authenticated access on every table, and auto-locks future tables.

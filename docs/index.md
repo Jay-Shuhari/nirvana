@@ -1,17 +1,20 @@
-# DevTrace home
+# Metis documentation
 
-Start here. Everything is linked with `[[wikilinks]]` (Foam turns them into a graph: `Ctrl+Shift+P` > **Foam: Show Graph**).
+Start with the product spec, then use these notes for the legacy implementation and rebuild. Everything is linked with `[[wikilinks]]` (Foam turns them into a graph: `Ctrl+Shift+P` > **Foam: Show Graph**).
 
-- [[Dev-Process]] - how this was built, step by step
-- [[Architecture]] - how the pieces fit together
-- [[Data-Model]] - the tables
+- [[PRD]] - Metis product requirements, user decisions, schemas, workflows, and open questions
+- [[Architecture]] - target boundaries and legacy architecture
+- [[Data-Model]] - target logical model and legacy database tables
+- [[Roadmap]] - rebuild phases
+- [[Decisions]] - confirmed product decisions
+- [[AI-Analysis]] - evaluation guardrails and legacy AI behavior
 - [[Scoring]]
-- [[AI-Analysis]] - requirements check and how to enable it - how a repository becomes a score
-- [[Supabase-Security]] - database and row-level security
-- [[Decisions]] - why things are the way they are
-- [[Roadmap]] - what is left to do
-- [[Troubleshooting]] - errors we hit and the fixes
+- [[Supabase-Security]] - security notes for the legacy Supabase setup
+- [[Troubleshooting]] - legacy environment issues
 - [[Glossary]]
+- [[Dev-Process]] - how this was built, step by step
 
 **Guided tours:** open the CodeTour panel (Explorer sidebar) and play the three tours in `.tours/`.
 **Comment tags used in the code:** see [[Comment-Guide]].
+
+See also repository-root [README.md](../README.md) and [CLAUDE.md](../CLAUDE.md).

@@ -1,6 +1,8 @@
-# Nirvana Deployment and GitHub App Configuration Guide
+# Legacy Deployment and GitHub App Configuration Guide
 
-This guide covers deployment for the Nirvana application, connecting the Django REST backend, Vite/React frontend, Supabase PostgreSQL database, GitHub App integration, and transactional email.
+> **Legacy guide:** This file describes the existing Nirvana/DevTrace deployment. Its domains, app slug, routes, environment variables, and screenshots/checks are not confirmed Metis production configuration. The Metis target product requirements are in [PRD.md](PRD.md); do not reuse old credentials or claim Metis is deployed based on this guide.
+
+This guide covers the legacy Django REST backend, Vite/React frontend, Supabase PostgreSQL database, GitHub App integration, and transactional email.
 
 - Vercel production frontend domain: `https://nirvana-blond-pi.vercel.app`
 - Vercel deployment preview: `https://nirvana-bliuyt1au-jays-projects-e9f34657.vercel.app`
@@ -38,15 +40,15 @@ This guide covers deployment for the Nirvana application, connecting the Django 
 
 ---
 
-## 3. GitHub App Configuration
+## 3. Legacy GitHub App Configuration
 
-The GitHub App provides student repository authorization (both public and private repositories) and server-side webhook synchronization.
+The existing GitHub App provides repository authorization and server-side webhook synchronization for the legacy application. Metis's target flow is stricter: students must link GitHub and authorize the Metis App before enrollment; assignment repository choices come only from the linked user's repositories fetched through that installation. Do not offer arbitrary public-repository or manual URL entry. Supervisors may attach an optional reference repository fetched from their authorized installation; enrolled students receive read-only access through Metis.
 
 In **GitHub > Settings > Developer settings > GitHub Apps > New GitHub App** (or edit your existing app):
 
 | Setting                                           | Value                                                                            | Purpose                                                                               |
 | ------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| **GitHub App name**                         | `nirvana` (or unique variant e.g. `nirvana-Jay`)                             | Application identifier                                                                |
+| **GitHub App name**                         | `metis` (choose an available unique name)                                     | Target Metis application identifier; the existing deployment may still use a legacy app |
 | **Homepage URL**                            | `https://nirvana-blond-pi.vercel.app`                                          | App home                                                                              |
 | **Callback URL**                            | *(Leave empty)*                                                                | Nirvana uses Django JWT, not GitHub OAuth                                             |
 | **Setup URL**                               | `https://<backend-host>/api/github/setup`                                      | Post-installation redirect handling state nonce verification and user association     |
@@ -54,9 +56,15 @@ In **GitHub > Settings > Developer settings > GitHub Apps > New GitHub App** (or
 | **Webhook Active**                          | **Active (checked)**                                                       | Receives installation events                                                          |
 | **Webhook URL**                             | `https://<backend-host>/api/github/webhook`                                    | Receives and verifies HMAC-signed events                                              |
 | **Webhook Secret**                          | Strong random string (matches `GITHUB_WEBHOOK_SECRET`)                         | HMAC-SHA256 signature verification                                                    |
-| **Repository permissions**                  | **Contents: Read-only****Metadata: Read-only**                       | Allows repository cloning, tree reading, file content inspection, and commit analysis |
+| **Repository permissions**                  | **Contents: Read-only****Metadata: Read-only**                             | Allows repository cloning, tree reading, file content inspection, and commit analysis |
 | **Subscribe to events**                     | **Installation** (`installation`)                                        | Tracks installation deletion, suspension, and resumption                              |
-| **Where can this GitHub App be installed?** | **Any account** (or **Only on this account** during initial testing) | Permits students to authorize their coursework repositories                           |
+| **Where can this GitHub App be installed?** | Academy-approved student/supervisor accounts | Limits installation to academy policy; user explicitly grants repository scope |
+
+For student installations, Metis may request access to all repositories on the linked academy account when the student explicitly grants that scope. The repository picker must still list only repositories returned by that verified installation, and the backend must check access again before reading a repository. The App must not imply that public repositories outside the installation are selectable.
+
+Google/GitHub sign-in is a separate identity-provider flow from GitHub App installation. OAuth login proves account identity; it does not by itself grant repository access. A user signing up with Google must link GitHub and complete the Metis App authorization step.
+
+For a supervisor's optional assignment reference repository, require App access before attaching it. Expose read-only content only to students actively enrolled in that assignment's course.
 
 ### Backend Environment Variables for GitHub App
 
@@ -74,7 +82,7 @@ GITHUB_WEBHOOK_SECRET=your_generated_webhook_secret
 
 ## 4. Email Notifications (Supabase or Custom SMTP)
 
-Nirvana supports sending notification emails for task assignments, project submissions, and score overrides directly through **Supabase** (via a Supabase Edge Function) or via custom SMTP.
+Nirvana supports sending notification emails for task assignments, project submissions, and score overrides directly through **Supabase** (viad  a Supabase Edge Function) or via custom SMTP.
 
 ### Option A: Using Supabase (Recommended)
 
@@ -83,7 +91,7 @@ When `EMAIL_PROVIDER=supabase`, Django delivers email via the Supabase Edge Func
 ```dotenv
 EMAIL_PROVIDER=supabase
 EMAIL_NOTIFICATIONS_ENABLED=1
-DEFAULT_FROM_EMAIL="Nirvana <notifications@your-domain.com>"
+DEFAULT_FROM_EMAIL="Metis <notifications@your-domain.com>"
 SUPABASE_EMAIL_FUNCTION_NAME=send-email
 FRONTEND_URL=https://nirvana-blond-pi.vercel.app
 ```
@@ -109,7 +117,7 @@ EMAIL_HOST_USER=your_user
 EMAIL_HOST_PASSWORD=your_password
 EMAIL_USE_TLS=1
 EMAIL_USE_SSL=0
-DEFAULT_FROM_EMAIL="Nirvana <notifications@your-domain.com>"
+DEFAULT_FROM_EMAIL="Metis <notifications@your-domain.com>"
 FRONTEND_URL=https://nirvana-blond-pi.vercel.app
 ```
 
@@ -150,14 +158,22 @@ FRONTEND_URL=https://nirvana-blond-pi.vercel.app
 
 ## 7. Production Verification Checklist
 
-Run these manual and automated checks before releasing to users:
+Run these checks only against the legacy deployment. Before a Metis release, replace legacy domains and verify the full Metis flows from [PRD.md](PRD.md).
 
 - [ ] **Health Endpoint**: `curl https://<backend-host>/healthz` returns `{"ok": true}`.
 - [ ] **Frontend Loading**: `https://nirvana-blond-pi.vercel.app` loads the React app without console errors.
 - [ ] **Deep Link Routing**: Direct navigation to `/courses`, `/tasks`, and `/settings` succeeds without 404s.
 - [ ] **CORS Verification**: Browser network requests to `https://<backend-host>/api/...` succeed with valid CORS headers.
 - [ ] **Authentication & Refresh**: Logging in creates access and refresh tokens. Expiration triggers a single transparent refresh; invalid tokens return to login while preserving the current URL.
-- [ ] **GitHub App Connect**: Clicking "Connect GitHub" in Settings opens the GitHub installation URL; completion redirects to `/settings?github=connected` and lists authorized repositories in project registration.
+- [ ] **Legacy GitHub App Connect**: Clicking "Connect GitHub" in Settings opens the legacy GitHub installation URL; completion redirects to `/settings?github=connected` and lists authorized repositories.
 - [ ] **Webhook Verification**: Sending a test installation webhook with valid HMAC signature returns 200; invalid signature returns 403.
-- [ ] **Deadlines & Single Submission**: A project can only be evaluated once per task; concurrent and late submissions are rejected with clear user errors.
+- [ ] **Legacy deadlines & submissions**: Existing one-time submission rules are tested. Metis must instead enforce supervisor-configured assignment attempt limits, accepted-attempt counting, concurrency, and deadlines.
 - [ ] **Email Notifications**: Task creation, project submissions, and grade overrides trigger formatted emails with deep links back to Nirvana.
+
+## Metis release prerequisites
+
+- [ ] Replace legacy `nirvana` domains, app identifiers, callback/setup URLs, email branding, and environment values with confirmed Metis configuration.
+- [ ] Configure Google and GitHub identity providers and secure account linking separately from GitHub App repository authorization.
+- [ ] Verify student installations, fetched-only repository selection, supervisor reference-repository access, attempt limits, and reminder preferences.
+- [ ] Verify assignment emails and deduplicated reminders at 24 hours and 5 hours before due time.
+- [ ] Do not claim production readiness until these checks run against the actual Metis services.

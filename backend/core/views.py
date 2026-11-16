@@ -26,6 +26,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from .ai import review_submission
+from .onboarding import require_ready, strengths_summary
 from .analyzer import analyze, gh
 from .github_app import (
     GitHubAppError,
@@ -51,6 +52,7 @@ logger = logging.getLogger(__name__)
 # * Tune these. They stop a student registering endless projects or hammering GitHub.
 MAX_PROJECTS_PER_STUDENT = 10
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+RETURN_PATHS = {"/settings", "/onboarding"}  # ! allow-list: never redirect to a browser-supplied URL
 
 # ANCHOR: Helpers
 def notify(user, text, link=""):
@@ -61,8 +63,8 @@ def notify(user, text, link=""):
 
         try:
             send_mail(
-                "Nirvana notification",
-                f"{text[:240]}\n\nOpen Nirvana: {settings.FRONTEND_URL}{link}",
+                "Metis notification",
+                f"{text[:240]}\n\nOpen Metis: {settings.FRONTEND_URL}{link}",
                 settings.DEFAULT_FROM_EMAIL or settings.EMAIL_HOST_USER,
                 [user.email],
                 fail_silently=False,
@@ -113,7 +115,8 @@ def task_json(t, user=None):
     if user is not None and user.role == "student":
         p = t.projects.filter(student=user).first()
         lat = p and next((x for x in p.submissions.all() if x.status == "done"), None)
-        d["project"] = {"id": p.id, "score": score(lat) if lat else None} if p else None
+        d["project"] = {"id": p.id, "repo": p.repo, "submitted": p.submission_locked,
+                        "score": score(lat) if lat else None} if p else None
     return d
 
 def can_see(u, p):
@@ -150,14 +153,16 @@ def check_repo(repo, user=None, installation_id=None):
 @permission_classes([AllowAny])
 def register(request):
     d = request.data
+    if not settings.LEGACY_PASSWORD_SIGNUP:
+        raise PermissionDenied("Sign up with Google or GitHub.")
     email = (d.get("email") or "").strip().lower()
     if "@" not in email: raise ValidationError("Enter a valid email address.")
     if User.objects.filter(username=email).exists(): raise ValidationError("That email is already registered.")
     if len(d.get("password", "")) < 8: raise ValidationError("Password must be at least 8 characters.")
-    # TODO: stop anyone choosing role=supervisor - add an invite code or admin approval.
+    # ! Role comes from academy policy (SUPERVISOR_EMAILS), never from the request body.
+    from .views_people import policy_role
     u = User.objects.create_user(username=email, email=email, password=d["password"],
-        first_name=(d.get("name") or "").strip(), role="supervisor" if d.get("role") == "supervisor" else "student",
-        matric=d.get("matric", ""), department=d.get("department", ""))
+        first_name=(d.get("name") or "").strip(), role=policy_role(email))
     return Response(user_json(u), status=201)
 
 # ANCHOR: Profile and settings
@@ -170,9 +175,18 @@ def me(request):
         if not name: raise ValidationError("Name cannot be empty.")
         u.first_name, u.last_name = name[:150], ""
         u.department = (d.get("department") or "")[:80]
-        if u.role == "student": u.matric = (d.get("matric") or "")[:30]
+        if u.role == "student" and "matric" in d:
+            from .onboarding import validate_matric
+            u.matric = validate_matric(u, d.get("matric"))
         u.save()
-    return Response({**user_json(u), "department": u.department, "unread": u.notifications.filter(read=False).count()})
+    from .onboarding import state
+    ob = state(u)
+    return Response({**user_json(u), "department": u.department, "unread": u.notifications.filter(read=False).count(),
+                     "has_password": u.has_usable_password(),
+                     "identities": [{"provider": i.provider, "login": i.login, "email": i.email} for i in u.identities.all()],
+                     "onboarding": {"complete": ob["complete"], "current": ob["current"]},
+                     "github": {"installations": len(ob["github"]["installations"]), "app_configured": ob["github"]["app_configured"]},
+                     "strengths": strengths_summary(u)})
 
 @api_view(["POST"])
 def change_password(request):
@@ -193,6 +207,12 @@ def notifications_read(request):
     request.user.notifications.filter(read=False).update(read=True)
     return Response({"ok": True})
 
+@api_view(["POST"])
+def notification_read(request, pk):
+    n = get_object_or_404(Notification, pk=pk, user=request.user)  # ! recipient-only
+    n.read = True; n.save(update_fields=["read"])
+    return Response({"ok": True})
+
 # ANCHOR: GitHub App
 @api_view(["POST"])
 def github_install_start(request):
@@ -200,7 +220,8 @@ def github_install_start(request):
         return Response({"detail": "GitHub App setup is not configured on the backend."}, status=503)
     if not settings.GITHUB_APP_PRIVATE_KEY:
         return Response({"detail": "GitHub App credentials are not configured on the backend."}, status=503)
-    state = GitHubInstallState.objects.create(user=request.user)
+    return_to = request.data.get("return_to") if request.data.get("return_to") in RETURN_PATHS else "/settings"
+    state = GitHubInstallState.objects.create(user=request.user, return_to=return_to)
     url = f"https://github.com/apps/{settings.GITHUB_APP_SLUG}/installations/new?state={state.nonce}"
     return Response({"url": url})
 
@@ -208,7 +229,7 @@ def github_install_start(request):
 def github_install_setup(request):
     state_value = request.GET.get("state", "")
     installation_id = request.GET.get("installation_id", "")
-    if request.GET.get("setup_action") != "install" or not installation_id or not state_value:
+    if request.GET.get("setup_action") not in {"install", "update"} or not installation_id or not state_value:
         return HttpResponse("GitHub installation was not completed.", status=400)
     try:
         state = GitHubInstallState.objects.get(
@@ -217,26 +238,42 @@ def github_install_setup(request):
             created__gte=timezone.now() - timedelta(minutes=15),
         )
         installation_id = int(installation_id)
-        verify_installation(installation_id)
+        details = verify_installation(installation_id)
     except (GitHubInstallState.DoesNotExist, TypeError, ValueError):
         return HttpResponse("GitHub installation state is invalid or expired.", status=400)
     except (GitHubAppError, requests.RequestException):
         logger.exception("Could not verify GitHub installation %s", installation_id)
         return HttpResponse("Could not verify this GitHub installation.", status=502)
 
+    account = details.get("account") or {}
+    linked = state.user.identities.filter(provider="github").first()
+    # ! A personal installation must belong to the GitHub account the user proved control of.
+    if linked and account.get("type") == "User" and str(account.get("id")) != linked.subject:
+        return HttpResponseRedirect(f"{settings.FRONTEND_URL}{state.return_to}?github=mismatch")
+    if GitHubInstallation.objects.filter(installation_id=installation_id).exclude(user=state.user).exists():
+        return HttpResponseRedirect(f"{settings.FRONTEND_URL}{state.return_to}?github=taken")
     state.consumed = True
     state.save(update_fields=["consumed"])
     GitHubInstallation.objects.update_or_create(
         installation_id=installation_id,
-        defaults={"user": state.user, "active": True, "suspended": False},
+        defaults={"user": state.user, "active": True, "suspended": False,
+                  "account_login": (account.get("login") or "")[:100],
+                  "account_id": account.get("id") if isinstance(account.get("id"), int) else None,
+                  "account_type": (account.get("type") or "")[:20]},
     )
-    return HttpResponseRedirect(f"{settings.FRONTEND_URL}/settings?github=connected")
+    if linked and not linked.login and account.get("type") == "User":
+        linked.login = (account.get("login") or "")[:100]
+        linked.save(update_fields=["login"])
+    return HttpResponseRedirect(f"{settings.FRONTEND_URL}{state.return_to}?github=connected")
 
 
 @api_view(["GET"])
 def github_repositories(request):
     try:
         return Response(repositories_for_user(request.user))
+    except GitHubAppError as exc:
+        logger.warning("GitHub App unavailable for user %s: %s", request.user.pk, exc)
+        return Response({"detail": str(exc), "code": "github_unconfigured"}, status=503)
     except (GitHubAppError, requests.RequestException):
         logger.exception("Could not list GitHub repositories for user %s", request.user.pk)
         return Response({"detail": "Could not load repositories from GitHub."}, status=502)
@@ -289,6 +326,7 @@ def courses(request):
 
 @api_view(["POST"])
 def join_course(request):
+    require_ready(request.user, "join a course")
     c = Course.objects.filter(join_code=(request.data.get("code") or "").strip().upper()).first()
     if not c: raise ValidationError("Invalid join code.")
     if c.students.filter(pk=request.user.pk).exists(): raise ValidationError("You already joined this course.")
@@ -299,15 +337,24 @@ def join_course(request):
 @api_view(["GET", "DELETE"])
 def course_detail(request, pk):
     """* Per-course teacher view: stats, tasks, students. DELETE removes the course and everything in it."""
+    if request.user.role == "student":
+        if request.method != "GET": raise PermissionDenied()
+        from .views_people import student_course_view
+        return student_course_view(request.user, get_object_or_404(Course, pk=pk, students=request.user))
     c = get_object_or_404(Course, pk=pk, supervisor=request.user)
     if request.method == "DELETE":
         c.delete(); return Response(status=204)
     rows = cohort_rows(c)
     tasks = [task_json(t) for t in c.tasks.select_related("course")]
+    groups = {m.user_id: m.group.name for m in c.group_memberships.select_related("group")}
     students = [{"id": s.id, "name": name_of(s), "email": s.email, "matric": s.matric,
-                 "projects": c.projects.filter(student=s).count()} for s in c.students.all()]
+                 "projects": c.projects.filter(student=s).count(), "group": groups.get(s.id),
+                 "strengths": strengths_summary(s)}
+                for s in c.students.select_related("onboarding")]
     return Response({"course": {"id": c.id, "code": c.code, "title": c.title, "session": c.session,
-                                "join_code": c.join_code, "rubric": c.rubric},
+                                "join_code": c.join_code, "rubric": c.rubric, "supervisor": name_of(c.supervisor),
+                                "group_mode": c.group_mode, "group_size": c.group_size},
+                     "role": "supervisor",
                      "stats": {"students": len(students), "tasks": len(tasks), "submitted": len(rows),
                                "average": round(sum(r["score"] for r in rows) / len(rows)) if rows else None,
                                "needs_attention": sum(1 for r in rows if r["flags"] or r["score"] < 55)},
@@ -359,7 +406,7 @@ def tasks(request):
             except ValueError: raise ValidationError("Due date must look like 2026-12-31.")
         reqs = [l.strip()[:300] for l in (d.get("requirements") or "").splitlines() if l.strip()][:20]
         t = Task.objects.create(course=c, title=title[:120], description=(d.get("description") or "")[:2000], requirements=reqs, due=due)
-        for s in c.students.all(): notify(s, f"New task in {c.code}: {t.title}", f"/projects/new?task={t.id}")
+        for s in c.students.all(): notify(s, f"New task in {c.code}: {t.title}", f"/tasks/{t.id}")
         return Response(task_json(t), status=201)
     qs = Task.objects.filter(course__supervisor=u) if u.role == "supervisor" else Task.objects.filter(course__students=u)
     return Response([task_json(t, u) for t in qs.select_related("course").order_by("-created")])
@@ -404,14 +451,15 @@ def projects(request):
     if request.method == "POST":
         if u.role != "student": raise PermissionDenied()
         d = request.data
-        if d.get("task"):
-            t = get_object_or_404(Task, pk=d["task"], course__students=u); c = t.course
-        else:
-            t, c = None, Course.objects.filter(pk=d.get("course"), students=u).first()
-            if not c: raise ValidationError("Join the course first.")
-        name = (d.get("name") or "").strip()
-        if not name: raise ValidationError("Give the project a name.")
+        require_ready(u, "start a task")
+        # ! Students start a task directly; there is no task-less "general project" any more.
+        if not d.get("task"): raise ValidationError({"task": "Open a task and start it from there."})
+        t = get_object_or_404(Task, pk=d["task"], course__students=u); c = t.course
+        name = (d.get("name") or t.title).strip()
         repo = norm_repo(d.get("repo"))
+        # ! No manual or public repositories: the repo must come from the student's Metis App installation.
+        if not d.get("installation_id"):
+            raise ValidationError({"repo": "Choose a repository from your connected GitHub account."})
         if u.projects.count() >= MAX_PROJECTS_PER_STUDENT: raise ValidationError(f"You can have at most {MAX_PROJECTS_PER_STUDENT} projects. Delete one first.")
         if t and u.projects.filter(task=t).exists(): raise ValidationError("You already registered a project for this task.")
         if Project.objects.filter(course=c, repo__iexact=repo).exists(): raise ValidationError("This repository is already registered in this course.")
@@ -451,6 +499,8 @@ def project_detail(request, pk):
         name = (d.get("name") or p.name).strip()
         repo = norm_repo(d.get("repo") or p.repo)
         if repo.lower() != p.repo.lower():
+            if not p.github_installation_id:
+                raise ValidationError("Choose a repository from your connected GitHub account on the task page.")
             if p.submissions.exists(): raise ValidationError("The repository can't change after a submission. Delete the project and register again.")
             if Project.objects.filter(course=p.course, repo__iexact=repo).exclude(pk=p.pk).exists(): raise ValidationError("This repository is already registered in this course.")
             check_repo(repo, request.user, p.github_installation_id)
@@ -592,7 +642,9 @@ def overview(request):
                    "needs_attention": sum(1 for r in rows if r["flags"] or r["score"] < 55)})
         attention += [r for r in rows if r["flags"] or r["score"] < 55]
     recent = Submission.objects.filter(project__course__supervisor=u, status="done").select_related("project__student", "project__course")[:8]
-    return Response({"totals": {"courses": len(cs), "students": sum(c["students"] for c in cs), "submissions": len(all_rows),
+    # * distinct people: a student enrolled in two of your courses counts once
+    distinct = User.objects.filter(enrolled__supervisor=u).distinct().count()
+    return Response({"totals": {"courses": len(cs), "students": distinct, "submissions": len(all_rows),
                                 "average": round(sum(r["score"] for r in all_rows) / len(all_rows)) if all_rows else None},
                      "courses": cs, "attention": [{k: r[k] for k in ("project", "student", "name", "course", "score", "flags")} for r in attention[:8]],
                      "recent": [{"project": s.project_id, "student": name_of(s.project.student), "name": s.project.name,

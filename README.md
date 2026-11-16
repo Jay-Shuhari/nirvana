@@ -1,107 +1,78 @@
-# Nirvana (DevTrace)
+# Metis
 
-Django REST backend, React (Vite) frontend, Postgres on Supabase.
-Students submit a GitHub commit; DevTrace recommends rubric scores with evidence when an AI provider is configured, and uses repository metrics as a fallback. Supervisors can override criterion scores or the overall grade with a written reason.
+Metis is a GitHub-centered academy platform for software assignments and evidence-based repository evaluation. This repository currently contains a legacy Nirvana/DevTrace implementation; the product is being redesigned from the top. The target behavior is specified in [PRD.md](PRD.md).
 
-## 1. Supabase
+## Status
 
-1. supabase.com > **New project**. Save the database password.
-2. **Connect** (top bar) > **Session pooler** > copy the URI. Use the pooler, not "Direct connection" (direct is IPv6-only on many home and campus networks). URL-encode special characters in the password (`@` is `%40`).
-3. **Project Settings > API**: copy the **Project URL**, the **anon** key and the **service_role** key.
-4. Fill the two env files:
+- **Product target:** Metis requirements, flows, and logical schemas are in [PRD.md](PRD.md).
+- **Rebuild guidance:** [CLAUDE.md](CLAUDE.md).
+- **Current code:** the Django/React app now has the Metis landing page, Google/GitHub sign-in (Firebase, verified server-side), progressive onboarding (matric, strengths, GitHub link + App), server gates for enrolment/start, App-only repository selection, course groups, the merged inbox and dashboard widgets. Per-task attempt limits, scheduled reminders and reference repositories are **not implemented yet**. See [tasks.md](tasks.md).
+- **Setup for sign-in and GitHub:** [docs/Firebase-GitHub-Setup.md](docs/Firebase-GitHub-Setup.md). **Open product questions:** [questions.md](questions.md).
+- **Deployment:** [git.md](git.md) documents a prior Nirvana deployment configuration. Treat its domains and provider settings as legacy until verified and replaced for Metis.
 
-| File              | Variable                                          | Value                                            |
-| ----------------- | ------------------------------------------------- | ------------------------------------------------ |
-| `backend/.env`  | `DATABASE_URL`                                  | Session pooler URI                               |
-| `backend/.env`  | `SUPABASE_URL`, `SUPABASE_ANON_KEY`           | Project URL, anon key                            |
-| `backend/.env`  | `SUPABASE_SERVICE_ROLE_KEY`                     | service_role key. **Secret. Server only.** |
-| `frontend/.env` | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | Project URL, anon key                            |
+Do not infer that a feature is implemented or deployed because it appears in the PRD.
 
-5. Create the tables: `cd backend && python manage.py migrate` (Django builds them in your Supabase Postgres).
-6. **Lock them**: Supabase > **SQL Editor** > New query > paste `supabase/schema.sql` > Run. The last query should list every table with `rls_enabled = true`.
-   - Supabase exposes every `public` table to anyone holding the anon key, and the anon key is visible in the browser. This file turns on Row Level Security, revokes anon/authenticated access, and auto-locks tables created by future migrations.
-   - Django connects as `postgres`, which bypasses RLS, so the app keeps working.
-   - Re-run it after adding new apps if you ever see a table with `rls_enabled = false`.
-7. Test the lock: in the SQL Editor run `set role anon; select * from core_user;` and expect `permission denied`.
+## Target student experience
 
-Architecture note: login, permissions and data go through Django (JWT). The Supabase client in `frontend/src/lib/supabase.js` is ready for Storage or Realtime later but currently reads nothing. Moving login to Supabase Auth would mean replacing Django's user model and writing RLS policies per table: possible, but a larger change.
+1. Visit the public Metis landing page.
+2. Sign up/sign in with Google or GitHub.
+3. Link a GitHub account and authorize the Metis GitHub App before course enrollment or assignment participation.
+4. Progressively complete required onboarding, including matriculation number and developer-strength questions.
+5. Enroll in an academy course.
+6. Open an assignment with its own instructions, requirements, reference materials, deadline, rubric, and attempt limit.
+7. Start the assignment and select only a repository fetched from the student's Metis App installation. Arbitrary public repositories and manual repository URLs are not accepted.
+8. Submit; each accepted submission consumes one of the supervisor-configured assignment attempts.
+9. Review criteria, evidence, AI/fallback provenance, and supervisor feedback.
 
-## 0. Open in VS Code
+## Target supervisor experience
 
-Open the **devtrace** folder (the one containing backend, frontend, docs). Accept the "install recommended extensions" prompt. Notes live in `docs/` (start at `docs/index.md`), guided walkthroughs in `.tours/`. Comment tags are explained in `docs/Comment-Guide.md`.
+1. Sign up/sign in with Google or GitHub, link GitHub, and receive supervisor access through academy policy.
+2. Create and manage academy courses.
+3. Create assignments with instructions, requirements, optional reference repositories, deadlines, flexible rubric criteria, and a maximum number of submissions.
+4. Review student attempts and evidence; override recommendations with a written reason when needed.
 
-## 2. Backend
+Assignment reference repositories are optional. A supervisor must grant the Metis App access; enrolled students receive read-only access through Metis. New assignments send email notifications, with default due reminders 24 hours and 5 hours before the deadline. Students manage reminder preferences in Settings.
 
-```bash
+## Legacy development setup
+
+The commands below run the existing application for inspection and maintenance; they do not produce the new Metis product described in the PRD.
+
+### Backend
+
+```powershell
 cd backend
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env        # fill DATABASE_URL and GITHUB_TOKEN
-python manage.py migrate
-python manage.py createsuperuser   # optional, for /admin
-python manage.py runserver         # http://localhost:8000
-```
-
-`GITHUB_TOKEN`: a personal access token with no scopes (public repos). Without it GitHub allows 60 requests/hour, enough for testing only.
-
-## 3. Frontend
-
-```bash
-cd frontend
-cp .env.example .env
-npm install
-npm run dev     # http://localhost:5173
-```
-
-## 4. Try it
-
-1. Register a **Supervisor**, create a course, copy its join code.
-2. Register a **Student**, join with the code, register a project (`owner/repo`), click **Submit for evaluation**.
-3. Log in as the supervisor, open the project, override a score with a reason.
-
-## API
-
-| Route                                                                                    | Purpose                                     |
-| ---------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `POST /api/auth/register`, `/api/auth/login`, `POST /api/auth/refresh`, `GET/PATCH /api/me` | Accounts and profile (JWT)              |
-| `GET/POST /api/courses`, `POST /api/courses/join`, `PUT /api/courses/:id/rubric`         | Courses and rubric (weights must total 100) |
-| `GET/POST /api/tasks`, `GET/DELETE /api/tasks/:id`                                       | Task assignments and task detail rosters    |
-| `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/:id`, `POST /api/projects/:id/submit` | Projects and one-time evaluations    |
-| `POST /api/criteria/:id/override`                                                        | Supervisor criterion score override         |
-| `POST /api/submissions/:id/override`                                                     | Supervisor overall-grade override/reset     |
-| `POST /api/github/install`, `GET /api/github/repositories`                               | GitHub App signed install & repo picker     |
-| `GET /api/github/setup`, `POST /api/github/webhook`                                      | GitHub App setup redirect & HMAC webhook    |
-| `GET /api/notifications`, `POST /api/notifications/read`                                 | In-app notifications inbox                  |
-
-## Deploy
-
-Backend: Render/Railway with `gunicorn devtrace.wsgi`, env vars from `.env`, set `DEBUG=0` and `CORS_ORIGIN` to your site. Frontend: Vercel/Netlify with `VITE_API_URL` pointing at the backend.
-
-For the full Vercel + GitHub App deployment guide, Supabase email & SMTP settings, database setup, and production verification checklist, see [git.md](git.md).
-
-## Updating an existing install
-
-```bash
-cd backend
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-python manage.py migrate      # applies pending schema changes
+Copy-Item .env.example .env
+python manage.py migrate
+python manage.py runserver
 ```
 
-Then paste `supabase/schema.sql` into the Supabase SQL Editor again so any new tables are locked with RLS.
+### Frontend
 
-## AI requirements and rubric review (optional)
+```powershell
+cd frontend
+Copy-Item .env.example .env
+npm install
+npm run dev
+```
 
-The backend can use Google Gemini via its OpenAI-compatible endpoint, Groq, or xAI. When configured, the assistant (**Ttonpa**) checks task requirements and recommends points with an evidence-based rationale for each enabled rubric criterion. These points serve as the initial automatic rubric scores; supervisors can override any criterion or the overall grade with a required written reason. Without provider settings, requirements use a local keyword check and rubric scores use repository metrics.
+Use only non-production test credentials. Never commit secrets or place server credentials in `VITE_*` variables.
 
-1. Create an API key in your chosen provider's console (e.g., [Google AI Studio](https://aistudio.google.com/apikey)).
-2. In `backend/.env`, set:
+## Documentation
 
-   ```dotenv
-   LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
-   LLM_API_KEY=your_api_key
-   LLM_MODEL=gemini-3.8-flash
-   ```
+- [PRD.md](PRD.md) — Metis product requirements, workflows, schemas, design requirements, and unresolved decisions.
+- [CLAUDE.md](CLAUDE.md) — project-specific instructions for the rebuild.
+- [docs/Architecture.md](docs/Architecture.md) — legacy architecture and target boundaries.
+- [docs/Data-Model.md](docs/Data-Model.md) — legacy tables and target logical schema.
+- [docs/AI-Analysis.md](docs/AI-Analysis.md) and [docs/Scoring.md](docs/Scoring.md) — current evaluation implementation and target guardrails.
+- [git.md](git.md) — prior deployment instructions; not Metis production configuration.
 
-3. Restart Django. On the next project evaluation, Ttonpa will review task requirements and recommend rubric points with rationale. If the provider is unavailable, the app falls back to keyword checks and metric-based scoring.
+## Legacy API
 
-Keep your AI API key only in `backend/.env` (or your backend host's secret environment settings). Never put it in `frontend/.env`, a `VITE_*` variable, source code, or a committed file. See [docs/AI-Analysis.md](docs/AI-Analysis.md).
+The existing `/api` endpoints are not the target API contract. The PRD describes the target capabilities; settle route shapes and provider callbacks as part of the rebuild's API design.
+
+## Legacy database
+
+The existing Django migrations define the current database. Do not apply a destructive schema rewrite to an existing deployment. Design the new schema and any migration/import strategy separately, preserving historical submissions and audit records where required.

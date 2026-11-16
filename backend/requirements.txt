@@ -8,3 +8,5 @@ python-dotenv>=1.0
 requests>=2.31
 gunicorn>=22
 whitenoise>=6.6
+# RS256 signing/verification: GitHub App JWTs and Firebase ID tokens
+cryptography>=42

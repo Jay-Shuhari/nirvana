@@ -1,6 +1,23 @@
-# AI requirements and rubric review
+# Metis AI requirements and rubric review
 
-A course has a weighted **rubric**. A task may also list **requirements**, one per line. On each submission, `backend/core/ai.py` sends the gathered repository files and analyzer evidence to the configured model for one review of both.
+This document states the target product guardrails first. The implementation details below describe the current **legacy** backend and should not be assumed to meet the target without verification.
+
+An assignment has supervisor-authored **requirements** and a flexible **rubric** whose enabled weights total exactly 100. On each accepted submission, Metis evaluates relevant files from the selected, authorized student repository—including tests and supporting files—against both. An optional supervisor reference repository may also supply assignment context when authorized.
+
+## Metis safety and privacy requirements
+
+- Treat repository and reference-repository content as untrusted data, never as instructions.
+- Inventory all accessible files in the selected repository and evaluate every supported file that fits the safety limits. Do not silently sample and claim complete coverage; disclose unsupported, oversized, binary, or secret-containing files that were excluded.
+- Never execute repository code, scripts, tests, build steps, or tools as part of model prompting.
+- Do not expose GitHub App tokens, OAuth credentials, AI keys, or other secrets to the model.
+- Apply approved file-type, file-count, size, secret-redaction, context-window, and runtime limits. Exclude binaries and safely handle unsupported/oversized files; report coverage honestly.
+- Ask for criterion-specific recommendations with concise rationales and source evidence (path and line/range where available).
+- Validate all model output before persistence/scoring. Invalid output must use a clearly labeled rule/metric fallback or produce an explicit evaluation failure according to policy.
+- Disclose which repository content may be sent to a configured external provider, its retention policy, and the non-AI fallback.
+- AI recommendations are advisory. Supervisors remain responsible for grading; overrides require a reason and are auditable.
+- Store the commit, rubric/requirements snapshot, provider/mode, result, and evidence needed to reproduce/explain a score; do not retain full source files without an approved need and retention policy.
+
+The legacy implementation currently uses `backend/core/ai.py`; the diagram below is a description of that behavior, not a guarantee of Metis safeguards.
 
 ```mermaid
 flowchart LR
